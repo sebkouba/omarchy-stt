@@ -1,15 +1,13 @@
-#!/bin/bash
-# Test pasting text at cursor position
+#!/usr/bin/env bash
+# Test typing text at cursor position using ydotool
 
 TEXT="This is a test transcription result!"
 
-# Copy to clipboard
-echo "$TEXT" | wl-copy
+# Set up ydotool socket
+export YDOTOOL_SOCKET=/tmp/.ydotool_socket
 
-# Small delay to ensure clipboard is ready
-sleep 0.1
+# Small delay to ensure the target window is ready to receive input
+sleep 0.2
 
-# Simulate Ctrl+V to paste
-ydotool key 29:1 47:1 47:0 29:0
-
-echo "Pasted: $TEXT"
+# Type the text with minimal delay (2ms between keys instead of default 20ms)
+ydotool type --key-delay=1 "$TEXT"
