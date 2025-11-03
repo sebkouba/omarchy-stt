@@ -21,7 +21,7 @@ if [ -z "$RESULT" ]; then
 fi
 
 # Copy to clipboard
-echo "$RESULT" | wl-copy
+echo -n "$RESULT" | wl-copy
 
 # Show notification with preview
 PREVIEW=$(echo "$RESULT" | head -c 100)
@@ -29,35 +29,28 @@ if [ ${#RESULT} -gt 100 ]; then
     PREVIEW="${PREVIEW}..."
 fi
 
-# Auto-paste with application-specific handling
-if command -v wtype &> /dev/null; then
-    # Give time for focus to return to original window
-    sleep 0.1
+# Auto-paste using ydotool
+if command -v ydotool &> /dev/null; then
+    # Set up ydotool socket
+    export YDOTOOL_SOCKET=/tmp/.ydotool_socket
 
-    # Get active window class
-    ACTIVE_WINDOW=""
-    if command -v hyprctl &> /dev/null; then
-        ACTIVE_WINDOW=$(hyprctl activewindow -j 2>/dev/null | grep -oP '"class":\s*"\K[^"]+' 2>/dev/null)
+    # Wait for window to be ready and clipboard to be populated
+    # sleep 0.2
+
+    # Detect if active window is a terminal
+    WINDOW_CLASS=$(hyprctl activewindow -j 2>/dev/null | jq -r '.class' 2>/dev/null | tr '[:upper:]' '[:lower:]')
+
+    # Check if it's a terminal (match common terminal emulators)
+    if [[ "$WINDOW_CLASS" =~ (alacritty|kitty|wezterm|foot|terminal|konsole|code|terminator|xterm|urxvt|st) ]]; then
+        # Terminal: Use Ctrl+Shift+V
+        # 29 = Left Ctrl, 42 = Left Shift, 47 = V
+        ydotool key 29:1 42:1 47:1 47:0 42:0 29:0
+    else
+        # Non-terminal: Use Ctrl+V
+        # 29 = Left Ctrl, 47 = V
+        ydotool key 29:1 47:1 47:0 29:0
     fi
 
-    # Handle different applications
-    case "$ACTIVE_WINDOW" in
-        *kitty*|*alacritty*|*foot*|*wezterm*|*konsole*|*terminator*|*gnome-terminal*|*xterm*)
-            # Terminal: Use Ctrl+Shift+V
-            wtype -M ctrl -M shift V -m shift -m ctrl
-            ;;
-        *code*|*Code*|*VSCodium*|*codium*)
-            # VS Code: Type directly to avoid keybinding conflicts
-            wtype "$RESULT"
-            ;;
-        *)
-            # Everything else: Standard Ctrl+V
-            wtype -M ctrl V -m ctrl
-            ;;
-    esac
-
-    # Show notification AFTER paste (so it doesn't steal focus)
-    sleep 0.1
     notify-send "✅ Pasted" "$PREVIEW" -t 2000
 else
     notify-send "📋 Copied to clipboard" "$PREVIEW\nPress Ctrl+V to paste" -t 3000

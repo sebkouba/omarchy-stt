@@ -16,7 +16,7 @@ sleep 0.2
 WINDOW_CLASS=$(hyprctl activewindow -j | jq -r '.class' | tr '[:upper:]' '[:lower:]')
 
 # Check if it's a terminal (match common terminal emulators)
-if [[ "$WINDOW_CLASS" =~ (alacritty|kitty|wezterm|foot|terminal|konsole|gnome-terminal|terminator|xterm|urxvt|st) ]]; then
+if [[ "$WINDOW_CLASS" =~ (alacritty|kitty|wezterm|foot|terminal|konsole|gnome-terminal|terminator|xterm|urxvt|st|code) ]]; then
     # Terminal: Use Ctrl+Shift+V
     # 29 = Left Ctrl, 42 = Left Shift, 47 = V
     ydotool key 29:1 42:1 47:1 47:0 42:0 29:0
