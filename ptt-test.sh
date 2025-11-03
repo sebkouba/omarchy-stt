@@ -34,13 +34,14 @@ case "$1" in
         # Get the PID and kill the recording
         PID=$(cat "$RECORDING_PID_FILE")
         kill -SIGINT "$PID" 2>/dev/null
+
+        # Wait for ffmpeg to finalize the file (critical!)
+        wait "$PID" 2>/dev/null || sleep 0.3
+
         rm "$RECORDING_PID_FILE"
 
         echo "⏹️  Recording stopped"
         notify-send "⏹️  Processing..." "Transcribing audio..." -t 1000
-
-        # Wait a moment for file to finalize
-        # sleep 0.2
 
         # Transcribe and copy to clipboard
         /home/seb/code/cloned/transcribe-rs/transcribe-to-clipboard.sh "$RECORDING_FILE"
