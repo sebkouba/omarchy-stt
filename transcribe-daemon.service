@@ -1,0 +1,15 @@
+[Unit]
+Description=Transcribe-rs Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/seb/code/cloned/transcribe-rs
+ExecStart=/home/seb/code/cloned/transcribe-rs/target/release/transcribe-daemon
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
