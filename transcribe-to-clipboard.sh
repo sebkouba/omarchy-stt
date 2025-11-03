@@ -62,8 +62,10 @@ if command -v ydotool &> /dev/null; then
     # Set up ydotool socket
     export YDOTOOL_SOCKET=/tmp/.ydotool_socket
 
-    # Wait for window to be ready and clipboard to be populated
-    # sleep 0.2
+    # CRITICAL: Give clipboard time to propagate through Wayland compositor
+    # Without this, paste happens before clipboard is ready
+    sleep 0.05
+    log "Clipboard propagation delay complete"
 
     # Detect if active window is a terminal
     WINDOW_CLASS=$(hyprctl activewindow -j 2>/dev/null | jq -r '.class' 2>/dev/null | tr '[:upper:]' '[:lower:]')
