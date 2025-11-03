@@ -43,6 +43,14 @@ fi
 
 log "Transcription text: '$RESULT'"
 
+# Add trailing space if ending with sentence punctuation
+# This allows consecutive PTT dictations to flow naturally
+LAST_CHAR="${RESULT: -1}"
+if [[ "$LAST_CHAR" =~ [.!?] ]]; then
+    RESULT="${RESULT} "
+    log "Added trailing space after punctuation '$LAST_CHAR'"
+fi
+
 # Copy to clipboard
 log "Copying to clipboard..."
 echo -n "$RESULT" | wl-copy
