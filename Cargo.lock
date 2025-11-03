@@ -2141,6 +2141,8 @@ dependencies = [
  "once_cell",
  "ort",
  "regex",
+ "serde",
+ "serde_json",
  "thiserror 2.0.16",
  "tokio",
  "whisper-rs",

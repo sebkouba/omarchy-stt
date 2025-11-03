@@ -40,7 +40,7 @@ case "$1" in
         notify-send "⏹️  Processing..." "Transcribing audio..." -t 1000
 
         # Wait a moment for file to finalize
-        sleep 0.2
+        # sleep 0.2
 
         # Transcribe and copy to clipboard
         /home/seb/code/cloned/transcribe-rs/transcribe-to-clipboard.sh "$RECORDING_FILE"

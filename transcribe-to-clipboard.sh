@@ -10,9 +10,8 @@ if [ ! -f "$AUDIO_FILE" ]; then
     exit 1
 fi
 
-# Transcribe (output only the text)
-cd "$PROJECT_DIR"
-RESULT=$(cargo run --example transcribe-file --release "$AUDIO_FILE" 2>/dev/null)
+# Transcribe using the daemon client (much faster!)
+RESULT=$("$PROJECT_DIR/target/release/transcribe-client" "$AUDIO_FILE" 2>/dev/null)
 
 # Check if transcription is empty
 if [ -z "$RESULT" ]; then
