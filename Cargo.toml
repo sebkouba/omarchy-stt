@@ -21,6 +21,16 @@ async-trait = { version = "0.1.89" }
 derive_builder = { version = "0.20.2" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+arboard = "3.4"
+notify-rust = "4.11"
+dirs = "5.0"
+chrono = "0.4"
+toml = "0.8"
+
+[[bin]]
+name = "transcribe"
+path = "src/bin/cli.rs"
 
 [[bin]]
 name = "transcribe-daemon"
@@ -38,3 +48,6 @@ whisper-rs = { version = "0.13.2", features = ["vulkan"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["vulkan"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }

@@ -53,6 +53,13 @@ pub mod engines;
 pub mod remote;
 pub use remote::RemoteTranscriptionEngine;
 
+// CLI support modules
+pub mod clipboard;
+pub mod notifications;
+pub mod paste;
+pub mod recording;
+pub mod terminal_detect;
+
 use std::path::Path;
 
 /// The result of a transcription operation.
