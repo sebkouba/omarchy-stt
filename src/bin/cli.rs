@@ -150,6 +150,32 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     log(&format!("Transcription text: '{}'", transcription), &config.audio.log_file);
 
+    // Apply transcription corrections (phonetic/acoustic fixes) BEFORE Harper
+    let corrected_transcription = if config.transcription_corrections.enabled {
+        log("Applying transcription corrections...", &config.audio.log_file);
+        use std::path::PathBuf;
+        use transcribe_rs::transcription_corrections::TranscriptionCorrector;
+
+        let corrections_file = PathBuf::from(&config.transcription_corrections.corrections_file);
+        match TranscriptionCorrector::from_file(&corrections_file) {
+            Ok(corrector) => {
+                let corrected = corrector.correct(&transcription);
+                if corrected != transcription {
+                    log(&format!("Applied transcription corrections: '{}' → '{}'", transcription, corrected), &config.audio.log_file);
+                } else {
+                    log("No transcription corrections needed", &config.audio.log_file);
+                }
+                corrected
+            }
+            Err(e) => {
+                log(&format!("WARNING: Failed to load transcription corrections: {}", e), &config.audio.log_file);
+                transcription.clone()
+            }
+        }
+    } else {
+        transcription.clone()
+    };
+
     // Process with Harper if enabled
     let (processed_text, _harper_session) = if config.harper.enabled {
         log("Processing with Harper...", &config.audio.log_file);
@@ -165,7 +191,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         };
 
         match transcribe_rs::harper_processor::process_with_harper(
-            &transcription,
+            &corrected_transcription,
             &dict_path,
             dialect,
             &config.harper.disabled_linters,
@@ -186,11 +212,11 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             }
             Err(e) => {
                 log(&format!("WARNING: Harper processing failed: {}", e), &config.audio.log_file);
-                (transcription.clone(), None)
+                (corrected_transcription.clone(), None)
             }
         }
     } else {
-        (transcription.clone(), None)
+        (corrected_transcription.clone(), None)
     };
 
     // Add space after punctuation
@@ -221,24 +247,18 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     };
     log(&format!("Preview: '{}'", preview), &config.audio.log_file);
 
-    // Auto-paste if enabled and ydotool available
+    // Auto-paste if enabled
     if config.integration.auto_paste {
-        log("Checking if ydotool is available...", &config.audio.log_file);
-        if paste::is_ydotool_available() {
-            log("ydotool available, attempting paste...", &config.audio.log_file);
-            match paste::paste_from_clipboard() {
-                Ok(_) => {
-                    log("Paste successful", &config.audio.log_file);
-                    notifications::notify_transcription_pasted(&preview).ok();
-                }
-                Err(e) => {
-                    log(&format!("WARNING: Paste failed: {}", e), &config.audio.log_file);
-                    notifications::notify_transcription_copied(&preview).ok();
-                }
+        log("Attempting auto-paste...", &config.audio.log_file);
+        match paste::paste_from_clipboard() {
+            Ok(_) => {
+                log("Paste successful", &config.audio.log_file);
+                notifications::notify_transcription_pasted(&preview).ok();
             }
-        } else {
-            log("ydotool not available, clipboard only", &config.audio.log_file);
-            notifications::notify_transcription_copied(&preview).ok();
+            Err(e) => {
+                log(&format!("WARNING: Paste failed: {}, clipboard only", e), &config.audio.log_file);
+                notifications::notify_transcription_copied(&preview).ok();
+            }
         }
     } else {
         log("Auto-paste disabled in config, clipboard only", &config.audio.log_file);

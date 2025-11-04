@@ -13,6 +13,8 @@ pub struct Config {
     pub daemon: DaemonConfig,
     pub integration: IntegrationConfig,
     #[serde(default)]
+    pub transcription_corrections: TranscriptionCorrectionsConfig,
+    #[serde(default)]
     pub harper: HarperConfig,
 }
 
@@ -60,6 +62,15 @@ pub struct IntegrationConfig {
     pub terminal_apps: Vec<String>,
 }
 
+/// Transcription error corrections (phonetic/acoustic fixes)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptionCorrectionsConfig {
+    /// Enable transcription corrections (runs before Harper)
+    pub enabled: bool,
+    /// Path to corrections file (JSON with from/to rules)
+    pub corrections_file: String,
+}
+
 /// Harper grammar/spell checking configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HarperConfig {
@@ -83,6 +94,7 @@ impl Default for Config {
             model: ModelConfig::default(),
             daemon: DaemonConfig::default(),
             integration: IntegrationConfig::default(),
+            transcription_corrections: TranscriptionCorrectionsConfig::default(),
             harper: HarperConfig::default(),
         }
     }
@@ -136,6 +148,21 @@ impl Default for IntegrationConfig {
                 "st".to_string(),
                 "code".to_string(),
             ],
+        }
+    }
+}
+
+impl Default for TranscriptionCorrectionsConfig {
+    fn default() -> Self {
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("transcribe-rs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
+
+        TranscriptionCorrectionsConfig {
+            enabled: true,
+            corrections_file: config_dir.join("transcription_corrections.json")
+                .to_string_lossy()
+                .to_string(),
         }
     }
 }

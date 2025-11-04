@@ -75,23 +75,12 @@ pub fn paste_from_clipboard() -> Result<(), Box<dyn Error>> {
 
 /// Check if ydotool is available
 pub fn is_ydotool_available() -> bool {
-    log("Checking if ydotool is available...");
     // ydotool doesn't support --version, use 'help' instead
-    let available = Command::new("ydotool")
+    Command::new("ydotool")
         .arg("help")
         .output()
-        .map(|output| {
-            let success = output.status.success();
-            log(&format!("ydotool help exit status: {:?}, available: {}", output.status, success));
-            success
-        })
-        .unwrap_or_else(|e| {
-            log(&format!("ERROR: Failed to run ydotool: {}", e));
-            false
-        });
-
-    log(&format!("ydotool available: {}", available));
-    available
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
