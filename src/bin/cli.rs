@@ -128,6 +128,15 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         }
         Err(e) => {
             log(&format!("ERROR: Transcription failed: {}", e), &config.audio.log_file);
+
+            // Check if this is a daemon connection error
+            let error_msg = e.to_string();
+            if error_msg.contains("Failed to connect") || error_msg.contains("daemon") || error_msg.contains("No such file or directory") {
+                notifications::notify_error("Daemon not found\nStart with: transcribe-daemon").ok();
+            } else {
+                notifications::notify_error(&format!("Transcription failed: {}", e)).ok();
+            }
+
             eprintln!("Transcription error: {}", e);
             return Err(e);
         }
@@ -305,8 +314,7 @@ fn handle_doctor() -> Result<(), Box<dyn Error>> {
                 }
             } else {
                 println!("  ⚠️  Daemon is not running");
-                println!("     Start with: transcribe-daemon");
-                println!("     Or systemd: systemctl --user start transcribe-daemon");
+                println!("     Run: systemctl --user start transcribe-daemon");
             }
         }
         Err(_) => {
