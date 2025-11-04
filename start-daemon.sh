@@ -1,9 +1,9 @@
 #!/bin/bash
 # Start the transcribe daemon
 
-PROJECT_DIR="/home/seb/code/cloned/transcribe-rs"
+PROJECT_DIR="/home/seb/code/cloned/transcribe-rs-v2"
 DAEMON_BIN="$PROJECT_DIR/target/release/transcribe-daemon"
-SOCKET_PATH="/tmp/transcribe-rs.sock"
+SOCKET_PATH="/tmp/transcribe-rs-v2.sock"
 
 # Check if daemon is already running
 if [ -S "$SOCKET_PATH" ]; then

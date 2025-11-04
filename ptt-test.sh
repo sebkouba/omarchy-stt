@@ -163,7 +163,7 @@ case "$1" in
 
         log "Calling transcribe-to-clipboard.sh..."
         # Transcribe and copy to clipboard
-        /home/seb/code/cloned/transcribe-rs/transcribe-to-clipboard.sh "$RECORDING_FILE"
+        /home/seb/code/cloned/transcribe-rs-v2/transcribe-to-clipboard.sh "$RECORDING_FILE"
         TRANSCRIBE_STATUS=$?
         log "transcribe-to-clipboard.sh exit status: $TRANSCRIBE_STATUS"
         log "=== STOP COMPLETE ==="

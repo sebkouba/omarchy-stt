@@ -18,4 +18,4 @@ ffplay -nodisp -autoexit "$TEST_FILE" 2>/dev/null
 
 echo ""
 echo "📝 Transcribing..."
-/home/seb/code/cloned/transcribe-rs/target/release/transcribe-client "$TEST_FILE"
+/home/seb/code/cloned/transcribe-rs-v2/target/release/transcribe-client "$TEST_FILE"

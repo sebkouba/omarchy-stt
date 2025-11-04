@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 transcribe-rs is a Rust library for audio transcription supporting multiple ASR (Automatic Speech Recognition) engines including Whisper and Parakeet (NeMo). The library was extracted from the [Handy](https://github.com/cjpais/handy) project to provide a reusable transcription API for the Rust ecosystem.
 
+## Repository Context
+
+**This is transcribe-rs-v2** - a fork/continuation of the original transcribe-rs project for experimental Rust M implementation work.
+
+- **Original project**: `/home/seb/code/cloned/transcribe-rs` (still active and in use)
+- **This project (v2)**: `/home/seb/code/cloned/transcribe-rs-v2` (for Rust M implementation experiments)
+- **Key difference**: Different socket path (`/tmp/transcribe-rs-v2.sock` vs `/tmp/transcribe-rs.sock`) allows both versions to run simultaneously
+- **Purpose**: This separate directory enables continuing development on the Rust M implementation without affecting the stable original version
+
+When working with paths, scripts, or the daemon:
+- All paths should reference `transcribe-rs-v2` (not `transcribe-rs`)
+- Socket path is `/tmp/transcribe-rs-v2.sock`
+- The daemon and client in this directory are independent from the original
+
 ## Common Commands
 
 ### Building and Testing

@@ -8,7 +8,7 @@ use transcribe_rs::{
     TranscriptionEngine,
 };
 
-const SOCKET_PATH: &str = "/tmp/transcribe-rs.sock";
+const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2.sock";
 
 #[derive(Debug, Deserialize)]
 struct TranscribeRequest {

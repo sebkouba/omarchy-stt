@@ -6,7 +6,7 @@ A long-running daemon for fast audio transcription. The daemon loads the model o
 
 - **transcribe-daemon**: Background service that loads the Parakeet model and listens on Unix socket
 - **transcribe-client**: CLI client that sends audio files to the daemon for transcription
-- **Protocol**: JSON over Unix domain socket at `/tmp/transcribe-rs.sock`
+- **Protocol**: JSON over Unix domain socket at `/tmp/transcribe-rs-v2.sock`
 
 ## Benefits
 
@@ -30,7 +30,7 @@ cargo build --release --bin transcribe-daemon
 
 The daemon will:
 - Load the Parakeet model (takes 2-5 seconds on first start)
-- Create Unix socket at `/tmp/transcribe-rs.sock`
+- Create Unix socket at `/tmp/transcribe-rs-v2.sock`
 - Wait for transcription requests
 
 ### 2. Send Transcription Requests
@@ -80,8 +80,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/seb/code/cloned/transcribe-rs
-ExecStart=/home/seb/code/cloned/transcribe-rs/target/release/transcribe-daemon
+WorkingDirectory=/home/seb/code/cloned/transcribe-rs-v2
+ExecStart=/home/seb/code/cloned/transcribe-rs-v2/target/release/transcribe-daemon
 Restart=on-failure
 RestartSec=5s
 
@@ -110,7 +110,7 @@ journalctl --user -u transcribe-daemon -f
 ### Daemon won't start - socket already exists
 
 ```bash
-rm /tmp/transcribe-rs.sock
+rm /tmp/transcribe-rs-v2.sock
 ./start-daemon.sh
 ```
 
@@ -121,7 +121,7 @@ rm /tmp/transcribe-rs.sock
 ps aux | grep transcribe-daemon
 
 # Check if socket exists
-ls -l /tmp/transcribe-rs.sock
+ls -l /tmp/transcribe-rs-v2.sock
 ```
 
 ### Check daemon logs

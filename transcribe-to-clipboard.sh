@@ -2,7 +2,7 @@
 # Transcribe audio file and copy to clipboard
 
 AUDIO_FILE="${1:-/tmp/ptt_current.wav}"
-PROJECT_DIR="/home/seb/code/cloned/transcribe-rs"
+PROJECT_DIR="/home/seb/code/cloned/transcribe-rs-v2"
 LOG_FILE="/tmp/ptt_debug.log"
 
 # Logging function with timestamp
