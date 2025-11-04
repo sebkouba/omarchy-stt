@@ -12,6 +12,8 @@ pub struct Config {
     pub model: ModelConfig,
     pub daemon: DaemonConfig,
     pub integration: IntegrationConfig,
+    #[serde(default)]
+    pub harper: HarperConfig,
 }
 
 /// Audio recording configuration
@@ -58,6 +60,19 @@ pub struct IntegrationConfig {
     pub terminal_apps: Vec<String>,
 }
 
+/// Harper grammar/spell checking configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarperConfig {
+    /// Enable Harper post-processing
+    pub enabled: bool,
+    /// Path to user dictionary file
+    pub dictionary_path: String,
+    /// Dialect: "American", "British", "Australian", or "Canadian"
+    pub dialect: String,
+    /// Directory where correction sessions are saved
+    pub corrections_dir: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -65,6 +80,7 @@ impl Default for Config {
             model: ModelConfig::default(),
             daemon: DaemonConfig::default(),
             integration: IntegrationConfig::default(),
+            harper: HarperConfig::default(),
         }
     }
 }
@@ -117,6 +133,25 @@ impl Default for IntegrationConfig {
                 "st".to_string(),
                 "code".to_string(),
             ],
+        }
+    }
+}
+
+impl Default for HarperConfig {
+    fn default() -> Self {
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("transcribe-rs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
+
+        HarperConfig {
+            enabled: true,
+            dictionary_path: config_dir.join("harper_dictionary.txt")
+                .to_string_lossy()
+                .to_string(),
+            dialect: "American".to_string(),
+            corrections_dir: config_dir.join("harper_corrections")
+                .to_string_lossy()
+                .to_string(),
         }
     }
 }

@@ -150,12 +150,50 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     log(&format!("Transcription text: '{}'", transcription), &config.audio.log_file);
 
+    // Process with Harper if enabled
+    let (processed_text, harper_session) = if config.harper.enabled {
+        log("Processing with Harper...", &config.audio.log_file);
+        use std::path::PathBuf;
+        use transcribe_rs::harper_processor::Dialect;
+
+        let dict_path = PathBuf::from(&config.harper.dictionary_path);
+        let dialect = match config.harper.dialect.as_str() {
+            "British" => Dialect::British,
+            "Australian" => Dialect::Australian,
+            "Canadian" => Dialect::Canadian,
+            _ => Dialect::American,
+        };
+
+        match transcribe_rs::harper_processor::process_with_harper(&transcription, &dict_path, dialect) {
+            Ok(session) => {
+                if session.has_corrections() {
+                    log(&format!("Harper made {} corrections", session.corrections.len()), &config.audio.log_file);
+
+                    // Save correction session
+                    let corrections_dir = PathBuf::from(&config.harper.corrections_dir);
+                    if let Err(e) = session.save_to_file(&corrections_dir) {
+                        log(&format!("WARNING: Failed to save Harper corrections: {}", e), &config.audio.log_file);
+                    }
+                } else {
+                    log("Harper: no corrections needed", &config.audio.log_file);
+                }
+                (session.corrected_text.clone(), Some(session))
+            }
+            Err(e) => {
+                log(&format!("WARNING: Harper processing failed: {}", e), &config.audio.log_file);
+                (transcription.clone(), None)
+            }
+        }
+    } else {
+        (transcription.clone(), None)
+    };
+
     // Add space after punctuation
     log("Adding trailing space after punctuation...", &config.audio.log_file);
     let text = if config.integration.add_space_after_punctuation {
-        clipboard::add_trailing_space_after_punctuation(&transcription)
+        clipboard::add_trailing_space_after_punctuation(&processed_text)
     } else {
-        transcription
+        processed_text
     };
     log(&format!("Final text: '{}'", text), &config.audio.log_file);
 
