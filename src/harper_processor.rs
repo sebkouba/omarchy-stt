@@ -110,19 +110,21 @@ fn load_user_dictionary(dict_path: &Path) -> Result<MutableDictionary, Box<dyn E
     Ok(dict)
 }
 
-/// Process text through Harper, auto-accepting all suggestions and tracking changes
-pub fn process_with_harper(
+/// Process text through Harper using a pre-loaded curated dictionary
+/// This is used by the daemon to avoid reloading dictionaries on each request
+pub fn process_with_harper_cached(
     text: &str,
+    curated_dict: &Arc<FstDictionary>,
     user_dict_path: &Path,
     dialect: Dialect,
     disabled_linters: &[String],
 ) -> Result<CorrectionSession, Box<dyn Error>> {
-    // Load dictionaries
+    // Load user dictionary (small, fast)
     let user_dict = load_user_dictionary(user_dict_path)?;
 
+    // Merge with pre-loaded curated dictionary
     let mut merged_dict = MergedDictionary::new();
-    // Use cached curated dictionary (loaded once on first invocation)
-    merged_dict.add_dictionary(get_curated_dict());
+    merged_dict.add_dictionary(curated_dict.clone()); // Already loaded
     merged_dict.add_dictionary(Arc::new(user_dict));
 
     let merged_dict_arc = Arc::new(merged_dict);
@@ -186,6 +188,18 @@ pub fn process_with_harper(
         corrected_text,
         corrections,
     })
+}
+
+/// Process text through Harper, auto-accepting all suggestions and tracking changes
+pub fn process_with_harper(
+    text: &str,
+    user_dict_path: &Path,
+    dialect: Dialect,
+    disabled_linters: &[String],
+) -> Result<CorrectionSession, Box<dyn Error>> {
+    // Use cached curated dictionary
+    let curated_dict = get_curated_dict();
+    process_with_harper_cached(text, &curated_dict, user_dict_path, dialect, disabled_linters)
 }
 
 #[cfg(test)]

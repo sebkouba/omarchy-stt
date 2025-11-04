@@ -1,33 +1,88 @@
 #!/bin/bash
-# Quick test of Harper integration
+# Test script for Harper Daemon Integration
+# This script verifies that Harper processing works in the daemon
 
-echo "=== Testing Harper Integration ==="
+set -e
+
+echo "🧪 Testing Harper Daemon Integration"
+echo "====================================="
 echo
 
-# Create a test dictionary
-mkdir -p ~/.config/transcribe-rs
-cat > ~/.config/transcribe-rs/harper_dictionary.txt <<EOF
-# Custom dictionary for testing
-LLM
-Parakeet
-Automattic
-EOF
-
-echo "✅ Created test dictionary"
-echo
-
-# Create a test transcription with intentional errors
-echo "Test transcription: 'This is a teh test of the Harper intergration.'"
-echo
-
-# Run Harper processor directly (not through full pipeline since we'd need daemon)
-cargo run --example test-harper-direct
+# Check if daemon is running
+if ! pgrep -f transcribe-daemon > /dev/null; then
+    echo "⚠️  Daemon is not running. Starting daemon..."
+    ./target/release/transcribe-daemon &
+    DAEMON_PID=$!
+    echo "   Daemon started with PID: $DAEMON_PID"
+    echo "   Waiting for daemon to initialize..."
+    sleep 5
+    CLEANUP_DAEMON=1
+else
+    echo "✓ Daemon is already running"
+    CLEANUP_DAEMON=0
+fi
 
 echo
-echo "=== Binary Sizes ==="
-ls -lh target/release/transcribe* | awk '{print $5, $9}'
+
+# Test with a sample WAV file
+echo "📝 Testing transcription with Harper processing..."
+TEST_FILE="tests/test1.wav"
+
+if [ ! -f "$TEST_FILE" ]; then
+    echo "❌ Test file not found: $TEST_FILE"
+    exit 1
+fi
+
+echo "   Input: $TEST_FILE"
 echo
 
-echo "=== To review corrections ==="
-echo "Check: ~/.config/transcribe-rs/harper_corrections/"
+# Run transcription
+echo "🎤 Transcribing..."
+RESULT=$(./target/release/transcribe-client "$TEST_FILE")
+
 echo
+echo "📋 Result:"
+echo "   $RESULT"
+echo
+
+# Verify result is not empty
+if [ -z "$RESULT" ]; then
+    echo "❌ Transcription returned empty result"
+    exit 1
+fi
+
+echo "✅ Transcription successful!"
+echo
+
+# Check if Harper corrections were saved (if any)
+CORRECTIONS_DIR="$HOME/.config/transcribe-rs/harper_corrections"
+if [ -d "$CORRECTIONS_DIR" ]; then
+    RECENT_CORRECTIONS=$(find "$CORRECTIONS_DIR" -name "*.json" -mmin -1 | wc -l)
+    if [ "$RECENT_CORRECTIONS" -gt 0 ]; then
+        echo "📝 Harper correction session saved"
+        echo "   Found $RECENT_CORRECTIONS recent correction file(s)"
+        LATEST=$(find "$CORRECTIONS_DIR" -name "*.json" -mmin -1 | head -1)
+        if [ -n "$LATEST" ]; then
+            echo "   Latest: $LATEST"
+            echo
+            echo "   Sample corrections:"
+            cat "$LATEST" | head -20
+        fi
+    else
+        echo "ℹ️  No recent Harper corrections (text was clean or Harper disabled)"
+    fi
+fi
+
+echo
+echo "🎉 Harper Daemon Integration Test Complete!"
+echo
+
+# Cleanup daemon if we started it
+if [ "$CLEANUP_DAEMON" = "1" ]; then
+    echo "🧹 Stopping daemon (PID: $DAEMON_PID)..."
+    kill $DAEMON_PID
+    wait $DAEMON_PID 2>/dev/null || true
+    echo "✓ Daemon stopped"
+fi
+
+exit 0

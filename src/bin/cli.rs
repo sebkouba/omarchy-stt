@@ -173,8 +173,9 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     log(&format!("Transcription text: '{}'", transcription), &config.audio.log_file);
 
-    // Apply transcription corrections (phonetic/acoustic fixes) BEFORE Harper
-    let corrected_transcription = if config.transcription_corrections.enabled {
+    // Apply transcription corrections (phonetic/acoustic fixes) if enabled
+    // Note: This still runs in CLI. Harper processing now happens in daemon.
+    let processed_text = if config.transcription_corrections.enabled {
         log("Applying transcription corrections...", &config.audio.log_file);
         use std::path::PathBuf;
         use transcribe_rs::transcription_corrections::TranscriptionCorrector;
@@ -199,48 +200,8 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         transcription.clone()
     };
 
-    // Process with Harper if enabled
-    let (processed_text, _harper_session) = if config.harper.enabled {
-        log("Processing with Harper...", &config.audio.log_file);
-        use std::path::PathBuf;
-        use transcribe_rs::harper_processor::Dialect;
-
-        let dict_path = PathBuf::from(&config.harper.dictionary_path);
-        let dialect = match config.harper.dialect.as_str() {
-            "British" => Dialect::British,
-            "Australian" => Dialect::Australian,
-            "Canadian" => Dialect::Canadian,
-            _ => Dialect::American,
-        };
-
-        match transcribe_rs::harper_processor::process_with_harper(
-            &corrected_transcription,
-            &dict_path,
-            dialect,
-            &config.harper.disabled_linters,
-        ) {
-            Ok(session) => {
-                if session.has_corrections() {
-                    log(&format!("Harper made {} corrections", session.corrections.len()), &config.audio.log_file);
-
-                    // Save correction session
-                    let corrections_dir = PathBuf::from(&config.harper.corrections_dir);
-                    if let Err(e) = session.save_to_file(&corrections_dir) {
-                        log(&format!("WARNING: Failed to save Harper corrections: {}", e), &config.audio.log_file);
-                    }
-                } else {
-                    log("Harper: no corrections needed", &config.audio.log_file);
-                }
-                (session.corrected_text.clone(), Some(session))
-            }
-            Err(e) => {
-                log(&format!("WARNING: Harper processing failed: {}", e), &config.audio.log_file);
-                (corrected_transcription.clone(), None)
-            }
-        }
-    } else {
-        (corrected_transcription.clone(), None)
-    };
+    // Harper processing now happens in the daemon (via transcribe-client)
+    // This eliminates the 300ms dictionary loading overhead on each transcription
 
     // Add space after punctuation
     log("Adding trailing space after punctuation...", &config.audio.log_file);
