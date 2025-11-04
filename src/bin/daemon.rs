@@ -124,6 +124,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(0);
     })?;
 
+    // Check model exists before trying to load
+    if !model_path.exists() {
+        eprintln!("❌ Model not found: {}", model_path.display());
+        eprintln!("\nDownload Parakeet model:");
+        eprintln!("  mkdir -p models && cd models");
+        eprintln!("  wget https://blob.handy.computer/parakeet-v3-int8.tar.gz");
+        eprintln!("  tar -xzf parakeet-v3-int8.tar.gz");
+        eprintln!("\nOr update config with correct path:");
+        eprintln!("  nano ~/.config/transcribe-rs/config.toml");
+        eprintln!("\nRun health check:");
+        eprintln!("  transcribe doctor");
+        return Err(format!("Model not found: {}", model_path.display()).into());
+    }
+
     // Load model once
     eprintln!("📦 Loading {} model...", config.model.engine);
     let mut engine = ParakeetEngine::new();
@@ -137,7 +151,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    engine.load_model_with_params(&model_path, model_params)?;
+    engine.load_model_with_params(&model_path, model_params)
+        .map_err(|e| {
+            eprintln!("❌ Failed to load model: {}", e);
+            eprintln!("\nCheck that model files are complete:");
+            eprintln!("  ls -lh {}", model_path.display());
+            eprintln!("\nExpected files:");
+            eprintln!("  - encoder-model.int8.onnx (or encoder-model.onnx for fp32)");
+            eprintln!("  - decoder_joint-model.int8.onnx (or decoder_joint-model.onnx for fp32)");
+            eprintln!("  - nemo128.onnx");
+            eprintln!("  - vocab.txt");
+            e
+        })?;
     eprintln!("✅ Model loaded successfully!");
 
     // Check if socket exists and handle it

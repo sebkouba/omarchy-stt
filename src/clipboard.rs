@@ -25,8 +25,15 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), Box<dyn Error>> {
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| {
-            let err = format!("Failed to spawn wl-copy: {}", e);
-            log(&format!("ERROR: {}", err));
+            let err = format!(
+                "Failed to start wl-copy: {}\n\n\
+                Is wl-clipboard installed?\n\
+                  Check with: which wl-copy\n\
+                  Install with: sudo pacman -S wl-clipboard\n\n\
+                Run system check:\n\
+                  transcribe doctor", e
+            );
+            log(&format!("ERROR: wl-copy not found: {}", e));
             err
         })?;
 

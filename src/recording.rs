@@ -52,7 +52,11 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .spawn()?;
+        .spawn()
+        .map_err(|e| {
+            log(&format!("ERROR: Failed to spawn ffmpeg: {}", e), &config.log_file);
+            format!("Failed to start ffmpeg: {}\n\nIs ffmpeg installed? Check with: which ffmpeg\nInstall with: sudo pacman -S ffmpeg", e)
+        })?;
 
     let pid = child.id();
     fs::write(&config.recording_pid_file, pid.to_string())?;
@@ -66,7 +70,24 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     if !is_process_running(pid) {
         fs::remove_file(&config.recording_pid_file)?;
         log("ERROR: ffmpeg died immediately after starting!", &config.log_file);
-        return Err("ffmpeg failed to start".into());
+
+        let err_msg = format!(
+            "ffmpeg failed to start recording.\n\n\
+            Possible causes:\n\
+            1. Microphone not found: '{}'\n\
+            2. Microphone in use by another application\n\
+            3. PulseAudio not running\n\n\
+            List available microphones:\n\
+              pactl list sources short\n\n\
+            Fix configuration:\n\
+              transcribe config show\n\
+              nano ~/.config/transcribe-rs/config.toml\n\n\
+            Check system:\n\
+              transcribe doctor",
+            config.microphone
+        );
+
+        return Err(err_msg.into());
     }
 
     log("Recording started successfully", &config.log_file);

@@ -37,6 +37,8 @@ enum Commands {
         #[command(subcommand)]
         config_cmd: ConfigCommands,
     },
+    /// Check system dependencies and configuration
+    Doctor,
     /// Start the transcription daemon (same as transcribe-daemon binary)
     Daemon,
     /// Send a file to the transcription daemon (same as transcribe-client binary)
@@ -69,6 +71,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             handle_stop(&config)
         }
         Commands::Config { config_cmd } => handle_config(config_cmd),
+        Commands::Doctor => handle_doctor(),
         Commands::Daemon => {
             // Delegate to existing daemon implementation
             eprintln!("To run the daemon, use: transcribe-daemon");
@@ -222,6 +225,160 @@ fn handle_config(config_cmd: ConfigCommands) -> Result<(), Box<dyn Error>> {
             let config_path = Config::config_path()?;
             println!("{}", config_path.display());
             Ok(())
+        }
+    }
+}
+
+/// Check system dependencies and configuration
+fn handle_doctor() -> Result<(), Box<dyn Error>> {
+    println!("🔍 Checking transcribe-rs system health...\n");
+
+    let mut all_ok = true;
+
+    // Check dependencies
+    println!("📦 Required Dependencies:");
+    all_ok &= check_command("ffmpeg", "Audio recording");
+    all_ok &= check_command("wl-copy", "Clipboard management");
+    all_ok &= check_command("ydotool", "Auto-paste functionality");
+    all_ok &= check_command("pactl", "Microphone detection");
+
+    println!();
+
+    // Check configuration
+    println!("⚙️  Configuration:");
+    let config_path = Config::config_path()?;
+    if config_path.exists() {
+        println!("  ✅ Config file exists: {}", config_path.display());
+
+        match Config::load() {
+            Ok(config) => {
+                println!("  ✅ Config file is valid");
+
+                // Check model path
+                let model_path = std::path::Path::new(&config.model.path);
+                if model_path.exists() {
+                    println!("  ✅ Model exists: {}", config.model.path);
+                } else {
+                    println!("  ❌ Model not found: {}", config.model.path);
+                    println!("     Download with:");
+                    println!("       mkdir -p models && cd models");
+                    println!("       wget https://blob.handy.computer/parakeet-v3-int8.tar.gz");
+                    println!("       tar -xzf parakeet-v3-int8.tar.gz");
+                    all_ok = false;
+                }
+
+                // Check microphone
+                if config.audio.microphone != "default" {
+                    println!("  ℹ️  Using specific microphone: {}", config.audio.microphone);
+                    println!("     Verify with: pactl list sources short");
+                }
+            }
+            Err(e) => {
+                println!("  ❌ Config file is invalid: {}", e);
+                all_ok = false;
+            }
+        }
+    } else {
+        println!("  ❌ Config file not found: {}", config_path.display());
+        println!("     Create with: transcribe config init");
+        all_ok = false;
+    }
+
+    println!();
+
+    // Check daemon
+    println!("🔧 Daemon Status:");
+    match Config::load() {
+        Ok(config) => {
+            let socket_path = &config.daemon.socket_path;
+            if std::path::Path::new(socket_path).exists() {
+                // Try to connect to daemon
+                match std::os::unix::net::UnixStream::connect(socket_path) {
+                    Ok(_) => {
+                        println!("  ✅ Daemon is running");
+                    }
+                    Err(_) => {
+                        println!("  ⚠️  Socket exists but daemon not responding");
+                        println!("     Remove stale socket: rm {}", socket_path);
+                        println!("     Start daemon: transcribe-daemon");
+                    }
+                }
+            } else {
+                println!("  ⚠️  Daemon is not running");
+                println!("     Start with: transcribe-daemon");
+                println!("     Or systemd: systemctl --user start transcribe-daemon");
+            }
+        }
+        Err(_) => {
+            println!("  ⚠️  Cannot check daemon (config not loaded)");
+        }
+    }
+
+    println!();
+
+    // Check microphone sources
+    println!("🎤 Available Microphones:");
+    match Command::new("pactl").args(["list", "sources", "short"]).output() {
+        Ok(output) => {
+            if output.status.success() {
+                let sources = String::from_utf8_lossy(&output.stdout);
+                let mic_lines: Vec<&str> = sources.lines()
+                    .filter(|line| line.contains("input"))
+                    .collect();
+
+                if mic_lines.is_empty() {
+                    println!("  ⚠️  No input sources found");
+                } else {
+                    for line in mic_lines {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 2 {
+                            println!("  • {} (index: {})", parts[1], parts[0]);
+                        }
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("  ⚠️  Could not list microphones (pactl failed)");
+        }
+    }
+
+    println!();
+
+    // Summary
+    if all_ok {
+        println!("✅ All checks passed! System is ready to use.");
+        println!("\nQuick start:");
+        println!("  1. Start daemon: transcribe-daemon");
+        println!("  2. Set up keybinding in Hyprland config");
+        println!("  3. Press hotkey, speak, release");
+    } else {
+        println!("❌ Some issues found. Please fix them before using transcribe-rs.");
+        println!("\nFor help, see: https://github.com/YOUR_USERNAME/transcribe-rs-v2#troubleshooting");
+    }
+
+    Ok(())
+}
+
+/// Check if a command exists in PATH
+fn check_command(cmd: &str, purpose: &str) -> bool {
+    match Command::new("which").arg(cmd).output() {
+        Ok(output) if output.status.success() => {
+            println!("  ✅ {} ({})", cmd, purpose);
+            true
+        }
+        _ => {
+            println!("  ❌ {} ({}) - NOT FOUND", cmd, purpose);
+            println!("     Install with: sudo pacman -S {}",
+                match cmd {
+                    "ffmpeg" => "ffmpeg",
+                    "wl-copy" => "wl-clipboard",
+                    "ydotool" => "ydotool",
+                    "pactl" => "pulseaudio",
+                    _ => cmd
+                }
+            );
+            false
         }
     }
 }
