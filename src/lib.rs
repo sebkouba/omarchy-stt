@@ -59,8 +59,10 @@ pub mod config;
 pub mod harper_processor;
 pub mod notifications;
 pub mod paste;
+pub mod performance_log;
 pub mod recording;
 pub mod terminal_detect;
+pub mod timing;
 pub mod transcription_corrections;
 
 use std::path::Path;

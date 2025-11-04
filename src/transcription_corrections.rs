@@ -55,7 +55,7 @@ fn default_threshold() -> f64 {
 struct FuzzyMatch {
     start: usize,
     end: usize,
-    similarity: f64,
+    _similarity: f64,  // Stored for potential future debugging/logging
 }
 
 /// Word with position tracking
@@ -202,7 +202,7 @@ impl TranscriptionCorrector {
                 matches.push(FuzzyMatch {
                     start: window[0].start,
                     end: window[window.len() - 1].end,
-                    similarity,
+                    _similarity: similarity,
                 });
                 last_match_end = window_end;
             }
@@ -246,24 +246,27 @@ impl TranscriptionCorrector {
                 total / pattern_words.len() as f64
             }
             MatchingAlgorithm::Levenshtein | MatchingAlgorithm::Auto => {
-                // Compare entire phrases
-                let pattern = if case_sensitive {
-                    pattern_words.join(" ")
-                } else {
-                    pattern_words.join(" ").to_lowercase()
-                };
+                // Average similarity across all words (same as JaroWinkler for consistency)
+                let total: f64 = pattern_words
+                    .iter()
+                    .zip(window.iter())
+                    .map(|(pattern, word)| {
+                        let p = if case_sensitive {
+                            pattern.to_string()
+                        } else {
+                            pattern.to_lowercase()
+                        };
+                        let w = if case_sensitive {
+                            word.text.clone()
+                        } else {
+                            word.text.to_lowercase()
+                        };
 
-                let window_text = if case_sensitive {
-                    window.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
-                } else {
-                    window
-                        .iter()
-                        .map(|w| w.text.to_lowercase())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
+                        levenshtein::normalized_similarity(p.chars(), w.chars())
+                    })
+                    .sum();
 
-                levenshtein::normalized_similarity(pattern.chars(), window_text.chars())
+                total / pattern_words.len() as f64
             }
         }
     }

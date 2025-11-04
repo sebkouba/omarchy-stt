@@ -96,6 +96,9 @@ Strict format enforcement in `audio::read_wav_samples()`:
 
 ## Common Development Commands
 
+**CRITICAL WORKFLOW RULE:**
+After completing any implementation changes, ALWAYS run `cargo build --release` before marking the task as complete or asking the user to test. The user expects a working binary ready to test. Check for warnings and fix them before completing the task.
+
 ### Building
 
 ```bash

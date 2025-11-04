@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use transcribe_rs::{clipboard, config::Config, notifications, paste, recording};
+use transcribe_rs::{clipboard, config::Config, notifications, paste, performance_log, recording, timing};
 
 /// Append a log message to the debug log
 fn log(message: &str, log_file: &str) {
@@ -21,6 +21,7 @@ fn log(message: &str, log_file: &str) {
 #[derive(Parser)]
 #[command(name = "transcribe")]
 #[command(about = "Audio transcription with push-to-talk support", long_about = None)]
+#[command(version = env!("FULL_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -90,6 +91,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn handle_start(config: &Config) -> Result<(), Box<dyn Error>> {
     log("=== HANDLE START ===", &config.audio.log_file);
 
+    // Save start timestamp for performance tracking
+    if let Err(e) = timing::save_start_time() {
+        log(&format!("WARNING: Failed to save start timestamp: {}", e), &config.audio.log_file);
+    }
+
     log("Starting recording...", &config.audio.log_file);
     recording::start_recording(&config.audio)?;
     log("Recording started successfully", &config.audio.log_file);
@@ -107,10 +113,23 @@ fn handle_start(config: &Config) -> Result<(), Box<dyn Error>> {
 fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     log("=== HANDLE STOP ===", &config.audio.log_file);
 
+    // Initialize performance metrics from saved start time
+    let mut metrics = match timing::PerformanceMetrics::from_start_time() {
+        Ok(m) => Some(m),
+        Err(e) => {
+            log(&format!("WARNING: Failed to load start timestamp: {}", e), &config.audio.log_file);
+            None
+        }
+    };
+
     // Stop recording
     log("Stopping recording...", &config.audio.log_file);
     let audio_file = recording::stop_recording(&config.audio)?;
     log(&format!("Audio file: {:?}", audio_file), &config.audio.log_file);
+
+    if let Some(ref mut m) = metrics {
+        m.mark_recording_stop();
+    }
 
     log("Sending stop notification...", &config.audio.log_file);
     if let Err(e) = notifications::notify_recording_stopped() {
@@ -141,6 +160,10 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
+
+    if let Some(ref mut m) = metrics {
+        m.mark_transcription_done();
+    }
 
     if transcription.is_empty() {
         log("ERROR: Empty transcription", &config.audio.log_file);
@@ -228,10 +251,19 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     };
     log(&format!("Final text: '{}'", text), &config.audio.log_file);
 
+    if let Some(ref mut m) = metrics {
+        m.mark_processing_done();
+    }
+
     // Copy to clipboard
     log("Copying to clipboard...", &config.audio.log_file);
     match clipboard::copy_to_clipboard(&text) {
-        Ok(_) => log("Clipboard copy successful", &config.audio.log_file),
+        Ok(_) => {
+            log("Clipboard copy successful", &config.audio.log_file);
+            if let Some(ref mut m) = metrics {
+                m.mark_clipboard_done();
+            }
+        }
         Err(e) => {
             log(&format!("ERROR: Clipboard copy failed: {}", e), &config.audio.log_file);
             eprintln!("Clipboard error: {}", e);
@@ -253,6 +285,9 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         match paste::paste_from_clipboard() {
             Ok(_) => {
                 log("Paste successful", &config.audio.log_file);
+                if let Some(ref mut m) = metrics {
+                    m.mark_paste_done();
+                }
                 notifications::notify_transcription_pasted(&preview).ok();
             }
             Err(e) => {
@@ -262,7 +297,23 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         }
     } else {
         log("Auto-paste disabled in config, clipboard only", &config.audio.log_file);
+        // Mark paste as done even if disabled, to track total workflow time
+        if let Some(ref mut m) = metrics {
+            m.mark_paste_done();
+        }
         notifications::notify_transcription_copied(&preview).ok();
+    }
+
+    // Log performance metrics
+    if let Some(m) = metrics {
+        if let Err(e) = performance_log::log_performance_detailed(&m, &text) {
+            log(&format!("WARNING: Failed to log performance: {}", e), &config.audio.log_file);
+        } else {
+            log(&format!("Performance logged: {:.3}s total", m.total_duration_seconds()), &config.audio.log_file);
+        }
+
+        // Clean up timestamp file
+        timing::cleanup_timestamp_file();
     }
 
     println!("Transcription: {}", text);
