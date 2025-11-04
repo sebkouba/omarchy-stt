@@ -71,6 +71,9 @@ pub struct HarperConfig {
     pub dialect: String,
     /// Directory where correction sessions are saved
     pub corrections_dir: String,
+    /// List of linter names to disable
+    #[serde(default)]
+    pub disabled_linters: Vec<String>,
 }
 
 impl Default for Config {
@@ -152,6 +155,9 @@ impl Default for HarperConfig {
             corrections_dir: config_dir.join("harper_corrections")
                 .to_string_lossy()
                 .to_string(),
+            disabled_linters: vec![
+                "AvoidCurses".to_string(),  // No censorship of swear words
+            ],
         }
     }
 }

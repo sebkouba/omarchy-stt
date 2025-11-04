@@ -151,7 +151,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     log(&format!("Transcription text: '{}'", transcription), &config.audio.log_file);
 
     // Process with Harper if enabled
-    let (processed_text, harper_session) = if config.harper.enabled {
+    let (processed_text, _harper_session) = if config.harper.enabled {
         log("Processing with Harper...", &config.audio.log_file);
         use std::path::PathBuf;
         use transcribe_rs::harper_processor::Dialect;
@@ -164,7 +164,12 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             _ => Dialect::American,
         };
 
-        match transcribe_rs::harper_processor::process_with_harper(&transcription, &dict_path, dialect) {
+        match transcribe_rs::harper_processor::process_with_harper(
+            &transcription,
+            &dict_path,
+            dialect,
+            &config.harper.disabled_linters,
+        ) {
             Ok(session) => {
                 if session.has_corrections() {
                     log(&format!("Harper made {} corrections", session.corrections.len()), &config.audio.log_file);

@@ -22,7 +22,7 @@ fn main() {
     let text1 = "This is a teh test of the Harper intergration.";
     println!("  Original: {}", text1);
 
-    match process_with_harper(text1, &dict_path, Dialect::American) {
+    match process_with_harper(text1, &dict_path, Dialect::American, &["AvoidCurses".to_string()]) {
         Ok(session) => {
             println!("  Corrected: {}", session.corrected_text);
             if session.has_corrections() {
@@ -48,7 +48,7 @@ fn main() {
     let text2 = "I use an LLM with Parakeet from Automattic.";
     println!("  Original: {}", text2);
 
-    match process_with_harper(text2, &dict_path, Dialect::American) {
+    match process_with_harper(text2, &dict_path, Dialect::American, &["AvoidCurses".to_string()]) {
         Ok(session) => {
             println!("  Corrected: {}", session.corrected_text);
             if session.has_corrections() {
@@ -73,7 +73,7 @@ fn main() {
     let text3 = "the the quick brown fox.";
     println!("  Original: {}", text3);
 
-    match process_with_harper(text3, &dict_path, Dialect::American) {
+    match process_with_harper(text3, &dict_path, Dialect::American, &["AvoidCurses".to_string()]) {
         Ok(session) => {
             println!("  Corrected: {}", session.corrected_text);
             if session.has_corrections() {

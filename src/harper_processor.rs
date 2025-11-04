@@ -105,6 +105,7 @@ pub fn process_with_harper(
     text: &str,
     user_dict_path: &Path,
     dialect: Dialect,
+    disabled_linters: &[String],
 ) -> Result<CorrectionSession, Box<dyn Error>> {
     // Load dictionaries
     let user_dict = load_user_dictionary(user_dict_path)?;
@@ -121,6 +122,11 @@ pub fn process_with_harper(
     // Create lint group with all default linters
     let harper_dialect = dialect.to_harper_dialect();
     let mut linter = LintGroup::new_curated(merged_dict_arc.clone(), harper_dialect);
+
+    // Disable linters from config
+    for linter_name in disabled_linters {
+        linter.config.set_rule_enabled(linter_name, false);
+    }
 
     // Get all lints
     let mut lints = linter.lint(&document);
@@ -183,7 +189,12 @@ mod tests {
         writeln!(dict_file, "# Test dictionary").unwrap();
 
         let text = "This is a teh test.";
-        let session = process_with_harper(text, dict_file.path(), super::Dialect::American).unwrap();
+        let session = process_with_harper(
+            text,
+            dict_file.path(),
+            super::Dialect::American,
+            &["AvoidCurses".to_string()],
+        ).unwrap();
 
         assert!(session.has_corrections());
         assert!(session.corrected_text.contains("the"));
@@ -194,7 +205,12 @@ mod tests {
         let dict_file = NamedTempFile::new().unwrap();
 
         let text = "This is a perfect sentence.";
-        let session = process_with_harper(text, dict_file.path(), super::Dialect::American).unwrap();
+        let session = process_with_harper(
+            text,
+            dict_file.path(),
+            super::Dialect::American,
+            &["AvoidCurses".to_string()],
+        ).unwrap();
 
         assert!(!session.has_corrections());
         assert_eq!(session.original_text, session.corrected_text);
@@ -207,7 +223,12 @@ mod tests {
         writeln!(dict_file, "Parakeet").unwrap();
 
         let text = "I use an LLM with Parakeet.";
-        let session = process_with_harper(text, dict_file.path(), super::Dialect::American).unwrap();
+        let session = process_with_harper(
+            text,
+            dict_file.path(),
+            super::Dialect::American,
+            &["AvoidCurses".to_string()],
+        ).unwrap();
 
         // Should not flag LLM or Parakeet as misspelled
         assert_eq!(session.original_text, session.corrected_text);
