@@ -55,6 +55,7 @@ pub use remote::RemoteTranscriptionEngine;
 
 // CLI support modules
 pub mod clipboard;
+pub mod config;
 pub mod notifications;
 pub mod paste;
 pub mod recording;

@@ -2,13 +2,14 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use transcribe_rs::{
+    config::Config,
     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
     TranscriptionEngine,
 };
-
-const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2.sock";
 
 #[derive(Debug, Deserialize)]
 struct TranscribeRequest {
@@ -73,26 +74,97 @@ fn handle_client(stream: UnixStream, engine: &mut ParakeetEngine) -> Result<(), 
     Ok(())
 }
 
+/// Check if socket file exists and is stale (not accepting connections)
+fn is_socket_stale(socket_path: &str) -> bool {
+    if !std::path::Path::new(socket_path).exists() {
+        return false;
+    }
+
+    // Try to connect to the socket
+    match UnixStream::connect(socket_path) {
+        Ok(_) => {
+            // Socket is active, not stale
+            false
+        }
+        Err(_) => {
+            // Socket exists but can't connect - it's stale
+            true
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("🚀 Starting transcribe-rs daemon...");
 
+    // Load configuration
+    eprintln!("📋 Loading configuration...");
+    let config = Config::load()?;
+    let socket_path = config.daemon.socket_path.clone();
+    let model_path = PathBuf::from(&config.model.path);
+
+    eprintln!("   Socket: {}", socket_path);
+    eprintln!("   Model: {}", config.model.path);
+
+    // Set up signal handler for graceful shutdown
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+    let socket_path_clone = socket_path.clone();
+
+    ctrlc::set_handler(move || {
+        eprintln!("\n🛑 Received shutdown signal, cleaning up...");
+        r.store(false, Ordering::SeqCst);
+
+        // Remove socket file
+        if let Err(e) = fs::remove_file(&socket_path_clone) {
+            eprintln!("⚠️  Warning: Failed to remove socket file: {}", e);
+        } else {
+            eprintln!("✓ Socket file removed");
+        }
+
+        std::process::exit(0);
+    })?;
+
     // Load model once
-    eprintln!("📦 Loading Parakeet model...");
+    eprintln!("📦 Loading {} model...", config.model.engine);
     let mut engine = ParakeetEngine::new();
-    let model_path = PathBuf::from("models/parakeet-tdt-0.6b-v3-int8");
-    engine.load_model_with_params(&model_path, ParakeetModelParams::int8())?;
+
+    let model_params = match config.model.quantization.as_str() {
+        "int8" => ParakeetModelParams::int8(),
+        "fp32" => ParakeetModelParams::fp32(),
+        _ => {
+            eprintln!("⚠️  Unknown quantization: {}, defaulting to int8", config.model.quantization);
+            ParakeetModelParams::int8()
+        }
+    };
+
+    engine.load_model_with_params(&model_path, model_params)?;
     eprintln!("✅ Model loaded successfully!");
 
-    // Remove existing socket if it exists
-    let _ = fs::remove_file(SOCKET_PATH);
+    // Check if socket exists and handle it
+    if std::path::Path::new(&socket_path).exists() {
+        if is_socket_stale(&socket_path) {
+            eprintln!("⚠️  Removing stale socket file...");
+            fs::remove_file(&socket_path)?;
+        } else {
+            return Err(format!(
+                "Socket {} already exists and another daemon is running. \
+                Stop the other daemon first or use a different socket path.",
+                socket_path
+            ).into());
+        }
+    }
 
     // Create Unix socket
-    let listener = UnixListener::bind(SOCKET_PATH)?;
-    eprintln!("👂 Listening on {}", SOCKET_PATH);
+    let listener = UnixListener::bind(&socket_path)?;
+    eprintln!("👂 Listening on {}", socket_path);
     eprintln!("Ready to accept transcription requests!");
 
     // Accept connections
     for stream in listener.incoming() {
+        if !running.load(Ordering::SeqCst) {
+            break;
+        }
+
         match stream {
             Ok(stream) => {
                 if let Err(e) = handle_client(stream, &mut engine) {
@@ -106,8 +178,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Cleanup
+    eprintln!("🧹 Cleaning up...");
     engine.unload_model();
-    let _ = fs::remove_file(SOCKET_PATH);
+    let _ = fs::remove_file(&socket_path);
 
+    eprintln!("👋 Daemon stopped");
     Ok(())
 }

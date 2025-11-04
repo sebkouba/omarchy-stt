@@ -2,8 +2,7 @@ use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use serde::{Deserialize, Serialize};
-
-const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2.sock";
+use transcribe_rs::config::Config;
 
 #[derive(Debug, Serialize)]
 struct TranscribeRequest {
@@ -18,6 +17,10 @@ struct TranscribeResponse {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load configuration
+    let config = Config::load()?;
+    let socket_path = &config.daemon.socket_path;
+
     // Get file path from command line argument
     let args: Vec<String> = env::args().collect();
 
@@ -29,8 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_file = &args[1];
 
     // Connect to daemon
-    let stream = UnixStream::connect(SOCKET_PATH).map_err(|e| {
-        eprintln!("❌ Failed to connect to transcribe daemon.");
+    let stream = UnixStream::connect(socket_path).map_err(|e| {
+        eprintln!("❌ Failed to connect to transcribe daemon at {}", socket_path);
         eprintln!("   Is the daemon running? Start it with: transcribe-daemon");
         e
     })?;

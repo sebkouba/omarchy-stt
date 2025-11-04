@@ -1,5 +1,6 @@
 //! Audio recording management using ffmpeg
 
+use crate::config::AudioConfig;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,18 +8,13 @@ use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
 
-const RECORDING_PID_FILE: &str = "/tmp/ptt_recording.pid";
-const RECORDING_FILE: &str = "/tmp/ptt_current.wav";
-const MIC_SOURCE: &str = "alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo";
-const LOG_FILE: &str = "/tmp/ptt_rust_debug.log";
-
 /// Append a log message to the debug log
-fn log(message: &str) {
+fn log(message: &str, log_file: &str) {
     use std::io::Write;
     if let Ok(mut file) = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(LOG_FILE)
+        .open(log_file)
     {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         writeln!(file, "[{}] [recording] {}", timestamp, message).ok();
@@ -26,75 +22,75 @@ fn log(message: &str) {
 }
 
 /// Start recording audio with ffmpeg
-pub fn start_recording() -> Result<(), Box<dyn Error>> {
-    log("=== Recording start requested ===");
+pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
+    log("=== Recording start requested ===", &config.log_file);
 
     // Check if already recording
-    if Path::new(RECORDING_PID_FILE).exists() {
-        let pid = fs::read_to_string(RECORDING_PID_FILE)?;
-        log(&format!("WARNING: Already recording (PID: {})", pid.trim()));
+    if Path::new(&config.recording_pid_file).exists() {
+        let pid = fs::read_to_string(&config.recording_pid_file)?;
+        log(&format!("WARNING: Already recording (PID: {})", pid.trim()), &config.log_file);
         return Err("Already recording".into());
     }
 
     // Remove old recording file
-    if Path::new(RECORDING_FILE).exists() {
-        let metadata = fs::metadata(RECORDING_FILE)?;
-        fs::remove_file(RECORDING_FILE)?;
-        log(&format!("Removed old recording file ({} bytes)", metadata.len()));
+    if Path::new(&config.recording_path).exists() {
+        let metadata = fs::metadata(&config.recording_path)?;
+        fs::remove_file(&config.recording_path)?;
+        log(&format!("Removed old recording file ({} bytes)", metadata.len()), &config.log_file);
     }
 
     // Start ffmpeg in background
-    log(&format!("Starting ffmpeg recording to {}", RECORDING_FILE));
+    log(&format!("Starting ffmpeg recording to {}", config.recording_path), &config.log_file);
     let child = Command::new("ffmpeg")
         .args([
             "-f", "pulse",
-            "-i", MIC_SOURCE,
-            "-ar", "16000",
+            "-i", &config.microphone,
+            "-ar", &config.sample_rate.to_string(),
             "-ac", "1",
             "-sample_fmt", "s16",
-            "-y", RECORDING_FILE,
+            "-y", &config.recording_path,
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
     let pid = child.id();
-    fs::write(RECORDING_PID_FILE, pid.to_string())?;
-    log(&format!("ffmpeg started with PID: {}", pid));
+    fs::write(&config.recording_pid_file, pid.to_string())?;
+    log(&format!("ffmpeg started with PID: {}", pid), &config.log_file);
 
     // Give ffmpeg time to initialize
     thread::sleep(Duration::from_millis(150));
-    log("ffmpeg initialization delay complete");
+    log("ffmpeg initialization delay complete", &config.log_file);
 
     // Verify ffmpeg is still running
     if !is_process_running(pid) {
-        fs::remove_file(RECORDING_PID_FILE)?;
-        log("ERROR: ffmpeg died immediately after starting!");
+        fs::remove_file(&config.recording_pid_file)?;
+        log("ERROR: ffmpeg died immediately after starting!", &config.log_file);
         return Err("ffmpeg failed to start".into());
     }
 
-    log("Recording started successfully");
+    log("Recording started successfully", &config.log_file);
     Ok(())
 }
 
 /// Stop recording and return the path to the audio file
-pub fn stop_recording() -> Result<PathBuf, Box<dyn Error>> {
-    log("=== Recording stop requested ===");
+pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
+    log("=== Recording stop requested ===", &config.log_file);
 
     // Check if recording
-    if !Path::new(RECORDING_PID_FILE).exists() {
-        log("WARNING: Not recording (PID file not found)");
+    if !Path::new(&config.recording_pid_file).exists() {
+        log("WARNING: Not recording (PID file not found)", &config.log_file);
         return Err("Not recording".into());
     }
 
     // Get PID and kill ffmpeg
-    let pid_str = fs::read_to_string(RECORDING_PID_FILE)?;
+    let pid_str = fs::read_to_string(&config.recording_pid_file)?;
     let pid: u32 = pid_str.trim().parse()?;
-    log(&format!("Stopping recording (PID: {})", pid));
+    log(&format!("Stopping recording (PID: {})", pid), &config.log_file);
 
     // Send SIGINT to ffmpeg
     if is_process_running(pid) {
-        log("Sending SIGINT to ffmpeg...");
+        log("Sending SIGINT to ffmpeg...", &config.log_file);
         #[cfg(unix)]
         {
             use nix::sys::signal::{kill, Signal};
@@ -102,11 +98,11 @@ pub fn stop_recording() -> Result<PathBuf, Box<dyn Error>> {
             kill(Pid::from_raw(pid as i32), Signal::SIGINT)?;
         }
     } else {
-        log("WARNING: Process not found in process table");
+        log("WARNING: Process not found in process table", &config.log_file);
     }
 
     // Wait for ffmpeg to exit (with timeout)
-    log("Waiting for ffmpeg to exit...");
+    log("Waiting for ffmpeg to exit...", &config.log_file);
     let start = Instant::now();
     let max_wait = Duration::from_secs(5);
     let mut poll_count = 0;
@@ -114,7 +110,7 @@ pub fn stop_recording() -> Result<PathBuf, Box<dyn Error>> {
     while is_process_running(pid) {
         poll_count += 1;
         if start.elapsed() > max_wait {
-            log(&format!("ERROR: ffmpeg did not exit after {:?}, killing forcefully", start.elapsed()));
+            log(&format!("ERROR: ffmpeg did not exit after {:?}, killing forcefully", start.elapsed()), &config.log_file);
             #[cfg(unix)]
             {
                 use nix::sys::signal::{kill, Signal};
@@ -126,30 +122,30 @@ pub fn stop_recording() -> Result<PathBuf, Box<dyn Error>> {
         thread::sleep(Duration::from_millis(10));
     }
 
-    log(&format!("ffmpeg exited after {:?} (polled {} times)", start.elapsed(), poll_count));
+    log(&format!("ffmpeg exited after {:?} (polled {} times)", start.elapsed(), poll_count), &config.log_file);
 
     // Give filesystem time to flush
     thread::sleep(Duration::from_millis(50));
-    log("Filesystem sync delay complete");
+    log("Filesystem sync delay complete", &config.log_file);
 
     // Remove PID file
-    fs::remove_file(RECORDING_PID_FILE)?;
-    log("PID file removed");
+    fs::remove_file(&config.recording_pid_file)?;
+    log("PID file removed", &config.log_file);
 
     // Verify file stability
-    verify_file_stable()?;
+    verify_file_stable(config)?;
 
     // Validate file
-    let file_size = fs::metadata(RECORDING_FILE)?.len();
-    log(&format!("Recording file size: {} bytes", file_size));
+    let file_size = fs::metadata(&config.recording_path)?.len();
+    log(&format!("Recording file size: {} bytes", file_size), &config.log_file);
 
     if file_size < 1000 {
-        log(&format!("ERROR: Recording file too small ({} bytes)", file_size));
+        log(&format!("ERROR: Recording file too small ({} bytes)", file_size), &config.log_file);
         return Err("Recording file too small - microphone may be busy".into());
     }
 
-    log("Recording stopped successfully");
-    Ok(PathBuf::from(RECORDING_FILE))
+    log("Recording stopped successfully", &config.log_file);
+    Ok(PathBuf::from(&config.recording_path))
 }
 
 /// Check if a process is running
@@ -169,22 +165,22 @@ fn is_process_running(pid: u32) -> bool {
 }
 
 /// Verify file size is stable (not still being written)
-fn verify_file_stable() -> Result<(), Box<dyn Error>> {
-    if !Path::new(RECORDING_FILE).exists() {
+fn verify_file_stable(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
+    if !Path::new(&config.recording_path).exists() {
         return Err("Recording file not found".into());
     }
 
-    let size1 = fs::metadata(RECORDING_FILE)?.len();
+    let size1 = fs::metadata(&config.recording_path)?.len();
     thread::sleep(Duration::from_millis(20));
-    let size2 = fs::metadata(RECORDING_FILE)?.len();
+    let size2 = fs::metadata(&config.recording_path)?.len();
 
     if size1 != size2 {
-        log(&format!("WARNING: File size changed from {} to {} bytes, waiting longer...", size1, size2));
+        log(&format!("WARNING: File size changed from {} to {} bytes, waiting longer...", size1, size2), &config.log_file);
         thread::sleep(Duration::from_millis(100));
-        let size3 = fs::metadata(RECORDING_FILE)?.len();
-        log(&format!("File size after additional wait: {} bytes", size3));
+        let size3 = fs::metadata(&config.recording_path)?.len();
+        log(&format!("File size after additional wait: {} bytes", size3), &config.log_file);
     } else {
-        log(&format!("File size stable at {} bytes", size1));
+        log(&format!("File size stable at {} bytes", size1), &config.log_file);
     }
 
     Ok(())
@@ -205,11 +201,13 @@ mod tests {
     }
 
     #[test]
-    fn test_constants_are_valid() {
-        // Just verify constants are set
-        assert!(!RECORDING_PID_FILE.is_empty());
-        assert!(!RECORDING_FILE.is_empty());
-        assert!(!MIC_SOURCE.is_empty());
-        assert!(!LOG_FILE.is_empty());
+    fn test_default_config_values() {
+        // Verify default config has reasonable values
+        let config = AudioConfig::default();
+        assert!(!config.recording_pid_file.is_empty());
+        assert!(!config.recording_path.is_empty());
+        assert!(!config.microphone.is_empty());
+        assert!(!config.log_file.is_empty());
+        assert_eq!(config.sample_rate, 16000);
     }
 }
