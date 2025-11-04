@@ -212,12 +212,94 @@ echo ""
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ============================================================================
-# STEP 5: Show Setup Instructions
+# STEP 5: Set Up Systemd Service
 # ============================================================================
-print_header "Step 5: Setup Instructions"
+print_header "Step 5: Setting Up Systemd Service"
 
-echo "Installation complete! Follow these steps to start using transcribe-rs:"
+SERVICE_FILE="$HOME/.config/systemd/user/transcribe-daemon.service"
+
+echo "The daemon keeps the transcription model loaded in memory for fast repeated use."
 echo ""
+
+if [ -f "$SERVICE_FILE" ]; then
+    print_info "Service file already exists: $SERVICE_FILE"
+    read -p "Overwrite with current paths? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Keeping existing service file"
+        echo ""
+    else
+        OVERWRITE_SERVICE=true
+    fi
+else
+    OVERWRITE_SERVICE=true
+fi
+
+if [ "$OVERWRITE_SERVICE" = true ]; then
+    read -p "Create systemd service file? (Y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        print_info "Skipping daemon setup"
+        echo ""
+        print_warning "You'll need to manually set up the daemon later"
+        echo "See README.md for instructions"
+        echo ""
+    else
+        # Create service file
+        mkdir -p "$HOME/.config/systemd/user/"
+        cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Transcribe-RS Daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$PROJECT_DIR
+ExecStart=$PROJECT_DIR/target/release/transcribe-daemon
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+        print_success "Service file created: $SERVICE_FILE"
+        echo ""
+
+        # Ask to enable and start
+        read -p "Enable and start daemon now? (Y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            print_info "Service created but not started"
+            echo "  To start later:"
+            echo "    systemctl --user daemon-reload"
+            echo "    systemctl --user enable transcribe-daemon"
+            echo "    systemctl --user start transcribe-daemon"
+        else
+            systemctl --user daemon-reload
+            systemctl --user enable transcribe-daemon
+            systemctl --user start transcribe-daemon
+
+            # Wait a moment and check status
+            sleep 1
+            if systemctl --user is-active --quiet transcribe-daemon; then
+                print_success "Daemon is running!"
+                echo "  Check status: systemctl --user status transcribe-daemon"
+                echo "  View logs: journalctl --user -u transcribe-daemon -f"
+            else
+                print_error "Daemon failed to start"
+                echo "  Check logs: journalctl --user -u transcribe-daemon -n 20"
+                echo "  Common issues:"
+                echo "    - Model not downloaded (see Step 3)"
+                echo "    - Config not initialized (see Step 4)"
+            fi
+        fi
+        echo ""
+    fi
+fi
+
+# ============================================================================
+# STEP 6: Show Remaining Setup Instructions
+# ============================================================================
+print_header "Step 6: Final Setup"
 
 print_info "1. Update config if needed (optional)"
 echo "  View config: ./target/release/transcribe config show"
@@ -227,33 +309,7 @@ echo "  To find your microphone:"
 echo "    pactl list sources short"
 echo ""
 
-print_info "2. Set up systemd service (recommended)"
-echo "  Create service file:"
-echo "    nano ~/.config/systemd/user/transcribe-daemon.service"
-echo ""
-echo "  Paste this content:"
-echo "  ─────────────────────────────────────────────────────────"
-echo "  [Unit]"
-echo "  Description=Transcribe-RS Daemon"
-echo "  After=network.target"
-echo "  "
-echo "  [Service]"
-echo "  Type=simple"
-echo "  WorkingDirectory=$PROJECT_DIR"
-echo "  ExecStart=$PROJECT_DIR/target/release/transcribe-daemon"
-echo "  Restart=on-failure"
-echo "  "
-echo "  [Install]"
-echo "  WantedBy=default.target"
-echo "  ─────────────────────────────────────────────────────────"
-echo ""
-echo "  Enable and start:"
-echo "    systemctl --user daemon-reload"
-echo "    systemctl --user enable transcribe-daemon"
-echo "    systemctl --user start transcribe-daemon"
-echo ""
-
-print_info "3. Set up Hyprland keybinding"
+print_info "2. Set up Hyprland keybinding"
 echo "  Add to ~/.config/hypr/hyprland.conf:"
 echo "  ─────────────────────────────────────────────────────────"
 echo "  # Push-to-Talk Dictation"
@@ -265,7 +321,7 @@ echo "  Reload Hyprland:"
 echo "    hyprctl reload"
 echo ""
 
-print_info "4. Test the installation"
+print_info "3. Test the installation"
 echo "  Run system health check:"
 echo "    ./target/release/transcribe doctor"
 echo ""
