@@ -30,7 +30,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Start push-to-talk recording
-    Start,
+    Start {
+        /// Optional prompt name for LLM post-processing (e.g., "clean", "email")
+        #[arg(short, long)]
+        prompt: Option<String>,
+    },
     /// Stop recording and transcribe
     Stop,
     /// Configuration management
@@ -63,9 +67,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start => {
+        Commands::Start { prompt } => {
             let config = Config::load()?;
-            handle_start(&config)
+            handle_start(&config, prompt)
         }
         Commands::Stop => {
             let config = Config::load()?;
@@ -88,8 +92,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn handle_start(config: &Config) -> Result<(), Box<dyn Error>> {
+fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn Error>> {
     log("=== HANDLE START ===", &config.audio.log_file);
+
+    // Save prompt name to temp file for stop command
+    const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
+    if let Some(prompt_name) = prompt {
+        log(&format!("Saving prompt name: {}", prompt_name), &config.audio.log_file);
+        fs::write(PROMPT_STATE_FILE, prompt_name)?;
+    } else {
+        // Remove prompt file if no prompt specified
+        let _ = fs::remove_file(PROMPT_STATE_FILE);
+    }
 
     // Save start timestamp for performance tracking
     if let Err(e) = timing::save_start_time() {
@@ -203,12 +217,38 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     // Harper processing now happens in the daemon (via transcribe-client)
     // This eliminates the 300ms dictionary loading overhead on each transcription
 
+    // Check if prompt-based post-processing is requested
+    const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
+    let final_text = if let Ok(prompt_name) = fs::read_to_string(PROMPT_STATE_FILE) {
+        let prompt_name = prompt_name.trim();
+        if !prompt_name.is_empty() {
+            log(&format!("Prompt requested: {}", prompt_name), &config.audio.log_file);
+
+            // Try to process with Groq API
+            match process_with_groq(&processed_text, prompt_name, &config.audio.log_file) {
+                Ok(groq_text) => {
+                    log(&format!("Groq processing successful: '{}'", groq_text), &config.audio.log_file);
+                    groq_text
+                }
+                Err(e) => {
+                    log(&format!("ERROR: Groq processing failed: {}", e), &config.audio.log_file);
+                    notifications::notify_error(&format!("Groq API failed: {}\nPasted raw transcription.", e)).ok();
+                    processed_text.clone()
+                }
+            }
+        } else {
+            processed_text.clone()
+        }
+    } else {
+        processed_text.clone()
+    };
+
     // Add space after punctuation
     log("Adding trailing space after punctuation...", &config.audio.log_file);
     let text = if config.integration.add_space_after_punctuation {
-        clipboard::add_trailing_space_after_punctuation(&processed_text)
+        clipboard::add_trailing_space_after_punctuation(&final_text)
     } else {
-        processed_text
+        final_text
     };
     log(&format!("Final text: '{}'", text), &config.audio.log_file);
 
@@ -464,6 +504,22 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
             false
         }
     }
+}
+
+/// Process transcribed text with Groq API using specified prompt
+fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<String, Box<dyn Error>> {
+    use transcribe_rs::{groq, prompts};
+
+    log(&format!("Loading prompt: {}", prompt_name), log_file);
+    let prompt = prompts::load_prompt(prompt_name)?;
+
+    log("Loading Groq API key from .env", log_file);
+    let client = groq::GroqClient::from_env_file()?;
+
+    log("Sending request to Groq API...", log_file);
+    let processed_text = client.complete(&prompt, text)?;
+
+    Ok(processed_text)
 }
 
 /// Call the transcribe-client binary to transcribe a file

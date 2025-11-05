@@ -29,6 +29,7 @@ toml = "0.8"
 ctrlc = "3.4"
 harper-core = "0.68.0"
 rapidfuzz = "0.5.0"
+ureq = { version = "2.9", features = ["json"] }
 
 [[bin]]
 name = "transcribe"
