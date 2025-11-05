@@ -59,12 +59,18 @@ impl GroqClient {
     /// Sends a completion request to Groq API
     ///
     /// # Arguments
-    /// * `system_prompt` - The system prompt/instructions
-    /// * `user_message` - The user message (transcribed text)
+    /// * `prompt` - The prompt/instructions from the .md file
+    /// * `transcription` - The transcribed text to process
     ///
     /// # Returns
     /// The processed text from the LLM
-    pub fn complete(&self, system_prompt: &str, user_message: &str) -> Result<String, Box<dyn Error>> {
+    pub fn complete(&self, prompt: &str, transcription: &str) -> Result<String, Box<dyn Error>> {
+        // Kimi requires this exact system prompt according to the docs
+        let system_prompt = "You are Kimi, an AI assistant created by Moonshot AI.";
+
+        // User message is the prompt instructions followed by the transcription
+        let user_message = format!("{}\n\nOriginal dictation:\n{}", prompt, transcription);
+
         let request = GroqApiRequest {
             messages: vec![
                 Message {
@@ -73,7 +79,7 @@ impl GroqClient {
                 },
                 Message {
                     role: "user".to_string(),
-                    content: user_message.to_string(),
+                    content: user_message,
                 },
             ],
             model: MODEL.to_string(),
