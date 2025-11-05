@@ -54,6 +54,7 @@ pub mod remote;
 pub use remote::RemoteTranscriptionEngine;
 
 // CLI support modules
+pub mod circular_buffer;
 pub mod clipboard;
 pub mod config;
 pub mod harper_processor;

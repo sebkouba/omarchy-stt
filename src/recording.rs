@@ -1,12 +1,17 @@
-//! Audio recording management using ffmpeg
+//! Audio recording management using recording daemon
+//!
+//! This module provides a client interface to the recording daemon,
+//! which continuously records audio to a circular buffer for near-instant
+//! extraction without FFmpeg spawn/exit overhead.
 
 use crate::config::AudioConfig;
 use std::error::Error;
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
+
+const DAEMON_SOCKET: &str = "/tmp/transcribe-rs-v2-recording.sock";
 
 /// Append a log message to the debug log
 fn log(message: &str, log_file: &str) {
@@ -21,75 +26,58 @@ fn log(message: &str, log_file: &str) {
     }
 }
 
-/// Start recording audio with ffmpeg
+/// Start recording audio via daemon
 pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     log("=== Recording start requested ===", &config.log_file);
 
     // Check if already recording
     if Path::new(&config.recording_pid_file).exists() {
-        let pid = fs::read_to_string(&config.recording_pid_file)?;
-        log(&format!("WARNING: Already recording (PID: {})", pid.trim()), &config.log_file);
+        let index = fs::read_to_string(&config.recording_pid_file)?;
+        log(&format!("WARNING: Already recording (start_index: {})", index.trim()), &config.log_file);
         return Err("Already recording".into());
     }
 
-    // Remove old recording file
-    if Path::new(&config.recording_path).exists() {
-        let metadata = fs::metadata(&config.recording_path)?;
-        fs::remove_file(&config.recording_path)?;
-        log(&format!("Removed old recording file ({} bytes)", metadata.len()), &config.log_file);
+    // Connect to daemon
+    log(&format!("Connecting to daemon at {}", DAEMON_SOCKET), &config.log_file);
+    let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
+        log(&format!("ERROR: Failed to connect to recording daemon: {}", e), &config.log_file);
+        format!(
+            "Failed to connect to recording daemon.\n\n\
+            Is the daemon running?\n\
+            Start with: recording-daemon\n\
+            Or: systemctl --user start recording-daemon\n\n\
+            Error: {}",
+            e
+        )
+    })?;
+
+    // Send start command
+    let request = serde_json::json!({"command": "start"});
+    writeln!(stream, "{}", request)?;
+    log(&format!("Sent request: {}", request), &config.log_file);
+
+    // Read response
+    let mut reader = BufReader::new(stream);
+    let mut response_line = String::new();
+    reader.read_line(&mut response_line)?;
+
+    log(&format!("Received response: {}", response_line.trim()), &config.log_file);
+
+    let response: serde_json::Value = serde_json::from_str(&response_line)?;
+
+    if !response["ok"].as_bool().unwrap_or(false) {
+        let error = response["error"].as_str().unwrap_or("Unknown error");
+        log(&format!("ERROR: Daemon returned error: {}", error), &config.log_file);
+        return Err(error.into());
     }
 
-    // Start ffmpeg in background
-    log(&format!("Starting ffmpeg recording to {}", config.recording_path), &config.log_file);
-    let child = Command::new("ffmpeg")
-        .args([
-            "-f", "pulse",
-            "-i", &config.microphone,
-            "-ar", &config.sample_rate.to_string(),
-            "-ac", "1",
-            "-sample_fmt", "s16",
-            "-y", &config.recording_path,
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            log(&format!("ERROR: Failed to spawn ffmpeg: {}", e), &config.log_file);
-            format!("Failed to start ffmpeg: {}\n\nIs ffmpeg installed? Check with: which ffmpeg\nInstall with: sudo pacman -S ffmpeg", e)
-        })?;
+    // Save start_index to file (repurposing the PID file)
+    let start_index = response["start_index"]
+        .as_u64()
+        .ok_or("Missing start_index in response")?;
+    fs::write(&config.recording_pid_file, start_index.to_string())?;
 
-    let pid = child.id();
-    fs::write(&config.recording_pid_file, pid.to_string())?;
-    log(&format!("ffmpeg started with PID: {}", pid), &config.log_file);
-
-    // Give ffmpeg time to initialize
-    thread::sleep(Duration::from_millis(150));
-    log("ffmpeg initialization delay complete", &config.log_file);
-
-    // Verify ffmpeg is still running
-    if !is_process_running(pid) {
-        fs::remove_file(&config.recording_pid_file)?;
-        log("ERROR: ffmpeg died immediately after starting!", &config.log_file);
-
-        let err_msg = format!(
-            "ffmpeg failed to start recording.\n\n\
-            Possible causes:\n\
-            1. Microphone not found: '{}'\n\
-            2. Microphone in use by another application\n\
-            3. PulseAudio not running\n\n\
-            List available microphones:\n\
-              pactl list sources short\n\n\
-            Fix configuration:\n\
-              transcribe config show\n\
-              nano ~/.config/transcribe-rs/config.toml\n\n\
-            Check system:\n\
-              transcribe doctor",
-            config.microphone
-        );
-
-        return Err(err_msg.into());
-    }
-
+    log(&format!("Recording started at index: {}", start_index), &config.log_file);
     log("Recording started successfully", &config.log_file);
     Ok(())
 }
@@ -100,126 +88,88 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
 
     // Check if recording
     if !Path::new(&config.recording_pid_file).exists() {
-        log("WARNING: Not recording (PID file not found)", &config.log_file);
+        log("WARNING: Not recording (index file not found)", &config.log_file);
         return Err("Not recording".into());
     }
 
-    // Get PID and kill ffmpeg
-    let pid_str = fs::read_to_string(&config.recording_pid_file)?;
-    let pid: u32 = pid_str.trim().parse()?;
-    log(&format!("Stopping recording (PID: {})", pid), &config.log_file);
+    // Read start_index from file
+    let start_index_str = fs::read_to_string(&config.recording_pid_file)?;
+    let start_index: u64 = start_index_str.trim().parse()?;
+    log(&format!("Stopping recording from index: {}", start_index), &config.log_file);
 
-    // Send SIGINT to ffmpeg
-    if is_process_running(pid) {
-        log("Sending SIGINT to ffmpeg...", &config.log_file);
-        #[cfg(unix)]
-        {
-            use nix::sys::signal::{kill, Signal};
-            use nix::unistd::Pid;
-            kill(Pid::from_raw(pid as i32), Signal::SIGINT)?;
-        }
-    } else {
-        log("WARNING: Process not found in process table", &config.log_file);
-    }
+    // Connect to daemon
+    log(&format!("Connecting to daemon at {}", DAEMON_SOCKET), &config.log_file);
+    let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
+        log(&format!("ERROR: Failed to connect to recording daemon: {}", e), &config.log_file);
+        // Clean up state file
+        fs::remove_file(&config.recording_pid_file).ok();
+        format!(
+            "Failed to connect to recording daemon - audio lost.\n\n\
+            The daemon may have crashed.\n\
+            Restart with: systemctl --user restart recording-daemon\n\n\
+            Error: {}",
+            e
+        )
+    })?;
 
-    // Wait for ffmpeg to exit (with timeout)
-    log("Waiting for ffmpeg to exit...", &config.log_file);
-    let start = Instant::now();
-    let max_wait = Duration::from_secs(5);
-    let mut poll_count = 0;
+    // Send stop command
+    let request = serde_json::json!({
+        "command": "stop",
+        "start_index": start_index
+    });
+    writeln!(stream, "{}", request)?;
+    log(&format!("Sent request: {}", request), &config.log_file);
 
-    while is_process_running(pid) {
-        poll_count += 1;
-        if start.elapsed() > max_wait {
-            log(&format!("ERROR: ffmpeg did not exit after {:?}, killing forcefully", start.elapsed()), &config.log_file);
-            #[cfg(unix)]
-            {
-                use nix::sys::signal::{kill, Signal};
-                use nix::unistd::Pid;
-                kill(Pid::from_raw(pid as i32), Signal::SIGKILL).ok();
-            }
-            break;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
+    // Read response
+    let mut reader = BufReader::new(stream);
+    let mut response_line = String::new();
+    reader.read_line(&mut response_line)?;
 
-    log(&format!("ffmpeg exited after {:?} (polled {} times)", start.elapsed(), poll_count), &config.log_file);
+    log(&format!("Received response: {}", response_line.trim()), &config.log_file);
 
-    // Give filesystem time to flush
-    thread::sleep(Duration::from_millis(50));
-    log("Filesystem sync delay complete", &config.log_file);
+    let response: serde_json::Value = serde_json::from_str(&response_line)?;
 
-    // Remove PID file
+    // Remove state file
     fs::remove_file(&config.recording_pid_file)?;
-    log("PID file removed", &config.log_file);
+    log("Index file removed", &config.log_file);
 
-    // Verify file stability
-    verify_file_stable(config)?;
+    if !response["ok"].as_bool().unwrap_or(false) {
+        let error = response["error"].as_str().unwrap_or("Unknown error");
+        log(&format!("ERROR: Daemon returned error: {}", error), &config.log_file);
+        return Err(error.into());
+    }
 
-    // Validate file
-    let file_size = fs::metadata(&config.recording_path)?.len();
-    log(&format!("Recording file size: {} bytes", file_size), &config.log_file);
+    // Extract WAV path and metadata
+    let wav_path = response["wav_path"]
+        .as_str()
+        .ok_or("Missing wav_path in response")?;
+    let duration_ms = response["duration_ms"].as_u64().unwrap_or(0);
+    let latency_ms = response["latency_ms"].as_u64().unwrap_or(0);
+    let samples = response["samples"].as_u64().unwrap_or(0);
+
+    log(&format!(
+        "Recording stopped successfully: path={}, duration={:.2}s, latency={}ms, samples={}",
+        wav_path,
+        duration_ms as f64 / 1000.0,
+        latency_ms,
+        samples
+    ), &config.log_file);
+
+    // Validate file exists
+    let file_size = fs::metadata(wav_path)?.len();
+    log(&format!("WAV file size: {} bytes", file_size), &config.log_file);
 
     if file_size < 1000 {
-        log(&format!("ERROR: Recording file too small ({} bytes)", file_size), &config.log_file);
-        return Err("Recording file too small - microphone may be busy".into());
+        log(&format!("ERROR: WAV file too small ({} bytes)", file_size), &config.log_file);
+        return Err("WAV file too small - no audio data".into());
     }
 
-    log("Recording stopped successfully", &config.log_file);
-    Ok(PathBuf::from(&config.recording_path))
-}
-
-/// Check if a process is running
-fn is_process_running(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        use nix::sys::signal::kill;
-        use nix::unistd::Pid;
-        // Send signal 0 to check if process exists without actually sending a signal
-        kill(Pid::from_raw(pid as i32), None).is_ok()
-    }
-    #[cfg(not(unix))]
-    {
-        // Fallback for non-Unix systems
-        false
-    }
-}
-
-/// Verify file size is stable (not still being written)
-fn verify_file_stable(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
-    if !Path::new(&config.recording_path).exists() {
-        return Err("Recording file not found".into());
-    }
-
-    let size1 = fs::metadata(&config.recording_path)?.len();
-    thread::sleep(Duration::from_millis(20));
-    let size2 = fs::metadata(&config.recording_path)?.len();
-
-    if size1 != size2 {
-        log(&format!("WARNING: File size changed from {} to {} bytes, waiting longer...", size1, size2), &config.log_file);
-        thread::sleep(Duration::from_millis(100));
-        let size3 = fs::metadata(&config.recording_path)?.len();
-        log(&format!("File size after additional wait: {} bytes", size3), &config.log_file);
-    } else {
-        log(&format!("File size stable at {} bytes", size1), &config.log_file);
-    }
-
-    Ok(())
+    Ok(PathBuf::from(wav_path))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_process_running_check() {
-        // Test with our own process (should always return true)
-        let our_pid = std::process::id();
-        assert!(is_process_running(our_pid));
-
-        // Test with a PID that definitely doesn't exist
-        assert!(!is_process_running(9999999));
-    }
 
     #[test]
     fn test_default_config_values() {
@@ -230,5 +180,32 @@ mod tests {
         assert!(!config.microphone.is_empty());
         assert!(!config.log_file.is_empty());
         assert_eq!(config.sample_rate, 16000);
+    }
+
+    #[test]
+    #[ignore] // Requires daemon running
+    fn test_daemon_connection() {
+        // Just test if we can connect to the daemon
+        match UnixStream::connect(DAEMON_SOCKET) {
+            Ok(_) => println!("✓ Daemon is running"),
+            Err(e) => println!("✗ Daemon not running: {}", e),
+        }
+    }
+
+    #[test]
+    #[ignore] // Requires daemon running
+    fn test_ping_daemon() {
+        let mut stream = UnixStream::connect(DAEMON_SOCKET).unwrap();
+        let request = serde_json::json!({"command": "ping"});
+        writeln!(stream, "{}", request).unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut response_line = String::new();
+        reader.read_line(&mut response_line).unwrap();
+
+        let response: serde_json::Value = serde_json::from_str(&response_line).unwrap();
+        assert_eq!(response["ok"], true);
+        println!("Daemon uptime: {}s", response["uptime_seconds"]);
+        println!("Buffer fullness: {:.1}%", response["buffer_fullness"].as_f64().unwrap_or(0.0) * 100.0);
     }
 }

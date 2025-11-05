@@ -1,0 +1,22 @@
+[Unit]
+Description=Transcribe-RS Recording Daemon (Continuous FFmpeg)
+Documentation=https://github.com/cjpais/transcribe-rs
+After=network.target sound.target pulseaudio.service pipewire.service
+
+[Service]
+Type=simple
+ExecStart=%h/code/cloned/transcribe-rs-v2/target/release/recording-daemon
+WorkingDirectory=%h/code/cloned/transcribe-rs-v2
+Restart=always
+RestartSec=5s
+
+# Environment variables (customize as needed)
+Environment="RECORDING_MICROPHONE=alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo"
+Environment="RECORDING_BUFFER_SIZE=120"
+
+# Resource limits
+MemoryMax=100M
+CPUQuota=10%
+
+[Install]
+WantedBy=default.target

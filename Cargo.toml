@@ -42,6 +42,10 @@ path = "src/bin/daemon.rs"
 name = "transcribe-client"
 path = "src/bin/client.rs"
 
+[[bin]]
+name = "recording-daemon"
+path = "src/bin/recording-daemon.rs"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["metal"] }
 
