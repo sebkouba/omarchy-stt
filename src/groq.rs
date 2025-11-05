@@ -99,10 +99,14 @@ impl GroqClient {
     }
 }
 
-/// Loads the Groq API key from .env file
+/// Loads the Groq API key from ~/.config/transcribe-rs/.env file
 fn load_groq_api_key() -> Result<String, Box<dyn Error>> {
-    let env_content = fs::read_to_string(".env")
-        .map_err(|e| format!("Failed to read .env file: {}", e))?;
+    let config_dir = dirs::config_dir()
+        .ok_or("Could not find config directory")?;
+    let env_path = config_dir.join("transcribe-rs").join(".env");
+
+    let env_content = fs::read_to_string(&env_path)
+        .map_err(|e| format!("Failed to read .env file at {}: {}\nCreate the file with: echo 'GROQ_API_KEY=your_key_here' > {}", env_path.display(), e, env_path.display()))?;
 
     for line in env_content.lines() {
         let line = line.trim();
@@ -116,7 +120,7 @@ fn load_groq_api_key() -> Result<String, Box<dyn Error>> {
         }
     }
 
-    Err("GROQ_API_KEY not found in .env file".into())
+    Err(format!("GROQ_API_KEY not found in .env file at {}", env_path.display()).into())
 }
 
 #[cfg(test)]
