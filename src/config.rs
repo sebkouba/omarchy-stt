@@ -16,6 +16,8 @@ pub struct Config {
     pub transcription_corrections: TranscriptionCorrectionsConfig,
     #[serde(default)]
     pub harper: HarperConfig,
+    #[serde(default)]
+    pub dictation_logging: DictationLoggingConfig,
 }
 
 /// Audio recording configuration
@@ -87,6 +89,21 @@ pub struct HarperConfig {
     pub disabled_linters: Vec<String>,
 }
 
+/// Dictation logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DictationLoggingConfig {
+    /// Master toggle for all dictation logging
+    pub enabled: bool,
+    /// Enable logging for non-LLM dictations
+    pub basic_log_enabled: bool,
+    /// Enable logging for LLM-processed dictations
+    pub llm_log_enabled: bool,
+    /// Path to basic dictation log (CSV format)
+    pub basic_log_path: String,
+    /// Path to LLM corrections log (CSV format)
+    pub llm_log_path: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -96,6 +113,7 @@ impl Default for Config {
             integration: IntegrationConfig::default(),
             transcription_corrections: TranscriptionCorrectionsConfig::default(),
             harper: HarperConfig::default(),
+            dictation_logging: DictationLoggingConfig::default(),
         }
     }
 }
@@ -185,6 +203,26 @@ impl Default for HarperConfig {
             disabled_linters: vec![
                 "AvoidCurses".to_string(),  // No censorship of swear words
             ],
+        }
+    }
+}
+
+impl Default for DictationLoggingConfig {
+    fn default() -> Self {
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("transcribe-rs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
+
+        DictationLoggingConfig {
+            enabled: false,  // Disabled by default for privacy
+            basic_log_enabled: true,
+            llm_log_enabled: true,
+            basic_log_path: config_dir.join("dictation_log.csv")
+                .to_string_lossy()
+                .to_string(),
+            llm_log_path: config_dir.join("llm_corrections_log.csv")
+                .to_string_lossy()
+                .to_string(),
         }
     }
 }

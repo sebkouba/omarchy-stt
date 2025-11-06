@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use transcribe_rs::{clipboard, config::Config, notifications, paste, performance_log, recording, timing};
+use transcribe_rs::{clipboard, config::Config, dictation_logger, notifications, paste, performance_log, recording, timing};
 
 /// Append a log message to the debug log
 fn log(message: &str, log_file: &str) {
@@ -105,11 +105,6 @@ fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn E
         let _ = fs::remove_file(PROMPT_STATE_FILE);
     }
 
-    // Save start timestamp for performance tracking
-    if let Err(e) = timing::save_start_time() {
-        log(&format!("WARNING: Failed to save start timestamp: {}", e), &config.audio.log_file);
-    }
-
     log("Starting recording...", &config.audio.log_file);
     recording::start_recording(&config.audio)?;
     log("Recording started successfully", &config.audio.log_file);
@@ -126,6 +121,11 @@ fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn E
 
 fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     log("=== HANDLE STOP ===", &config.audio.log_file);
+
+    // Save start timestamp for performance tracking (measures from stop command to paste)
+    if let Err(e) = timing::save_start_time() {
+        log(&format!("WARNING: Failed to save start timestamp: {}", e), &config.audio.log_file);
+    }
 
     // Initialize performance metrics from saved start time
     let mut metrics = match timing::PerformanceMetrics::from_start_time() {
@@ -219,9 +219,11 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     // Check if prompt-based post-processing is requested
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
+    let mut llm_processing_triggered = false;
     let final_text = if let Ok(prompt_name) = fs::read_to_string(PROMPT_STATE_FILE) {
         let prompt_name = prompt_name.trim();
         if !prompt_name.is_empty() {
+            llm_processing_triggered = true;
             log(&format!("Prompt requested: {}", prompt_name), &config.audio.log_file);
 
             // Try to process with Groq API
@@ -311,6 +313,46 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             log(&format!("WARNING: Failed to log performance: {}", e), &config.audio.log_file);
         } else {
             log(&format!("Performance logged: {:.3}s total", m.total_duration_seconds()), &config.audio.log_file);
+        }
+
+        // Log dictation if enabled
+        if config.dictation_logging.enabled {
+            let duration = m.total_duration_seconds();
+
+            if llm_processing_triggered && config.dictation_logging.llm_log_enabled {
+                // Only log if LLM actually changed the text (after trimming whitespace)
+                if processed_text.trim() != text.trim() {
+                    // Generate diff showing what changed
+                    let diff = dictation_logger::generate_diff(&processed_text, &text);
+                    log(&format!("LLM diff: {}", diff), &config.audio.log_file);
+
+                    // Log to LLM corrections log
+                    if let Err(e) = dictation_logger::log_llm_correction(
+                        &processed_text,
+                        &text,
+                        &diff,
+                        duration,
+                        &config.dictation_logging.llm_log_path,
+                    ) {
+                        log(&format!("WARNING: Failed to log LLM correction: {}", e), &config.audio.log_file);
+                    } else {
+                        log("Logged to LLM corrections log", &config.audio.log_file);
+                    }
+                } else {
+                    log("LLM processing triggered but no actual changes made (skipped logging)", &config.audio.log_file);
+                }
+            } else if !llm_processing_triggered && config.dictation_logging.basic_log_enabled {
+                // Log to basic dictation log
+                if let Err(e) = dictation_logger::log_basic_dictation(
+                    &text,
+                    duration,
+                    &config.dictation_logging.basic_log_path,
+                ) {
+                    log(&format!("WARNING: Failed to log basic dictation: {}", e), &config.audio.log_file);
+                } else {
+                    log("Logged to basic dictation log", &config.audio.log_file);
+                }
+            }
         }
 
         // Clean up timestamp file
