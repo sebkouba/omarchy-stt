@@ -29,10 +29,6 @@ pub fn paste_from_clipboard() -> Result<(), Box<dyn Error>> {
     std::env::set_var("YDOTOOL_SOCKET", socket_path);
     log(&format!("Set YDOTOOL_SOCKET={}", socket_path));
 
-    // CRITICAL: Give clipboard time to propagate through Wayland compositor
-    log("Waiting 50ms for clipboard to propagate...");
-    thread::sleep(Duration::from_millis(50));
-
     // Detect if terminal
     log("Detecting if active window is terminal...");
     let is_terminal = crate::terminal_detect::is_active_window_terminal();
