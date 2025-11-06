@@ -4,8 +4,6 @@ use std::error::Error;
 use std::fs;
 use std::io::Write;
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
 
 /// Append a log message to the debug log
 fn log(message: &str) {
