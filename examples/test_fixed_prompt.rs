@@ -15,13 +15,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("--- Test 1: LED Control (should call tool) ---");
     match client.complete(&fixed_prompt, "Turn off the LEDs please") {
-        Ok(response) => println!("✅ Response: {}\n", response),
+        Ok(result) => {
+            println!("✅ Response: {}", result.text);
+            println!("Tool called: {}\n", result.tool_called);
+        }
         Err(e) => println!("❌ Error: {}\n", e),
     }
 
     println!("--- Test 2: Regular Dictation (should clean text) ---");
     match client.complete(&fixed_prompt, "um so like I think we should uh focus on the API") {
-        Ok(response) => println!("✅ Response: {}\n", response),
+        Ok(result) => {
+            println!("✅ Response: {}", result.text);
+            println!("Tool called: {}\n", result.tool_called);
+        }
         Err(e) => println!("❌ Error: {}\n", e),
     }
 

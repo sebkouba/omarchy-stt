@@ -221,6 +221,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     // Check if prompt-based post-processing is requested
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     let mut llm_processing_triggered = false;
+    let mut tool_was_called = false;
     let final_text = if let Ok(prompt_name) = fs::read_to_string(PROMPT_STATE_FILE) {
         let prompt_name = prompt_name.trim();
         if !prompt_name.is_empty() {
@@ -229,9 +230,13 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
             // Try to process with Groq API
             match process_with_groq(&processed_text, prompt_name, &config.audio.log_file) {
-                Ok(groq_text) => {
-                    log(&format!("Groq processing successful: '{}'", groq_text), &config.audio.log_file);
-                    groq_text
+                Ok(result) => {
+                    log(&format!("Groq processing successful: '{}'", result.text), &config.audio.log_file);
+                    tool_was_called = result.tool_called;
+                    if tool_was_called {
+                        log("Tool was called - will skip paste and show notification only", &config.audio.log_file);
+                    }
+                    result.text
                 }
                 Err(e) => {
                     log(&format!("ERROR: Groq processing failed: {}", e), &config.audio.log_file);
@@ -246,7 +251,11 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         processed_text.clone()
     };
 
-    // Add space after punctuation
+    if let Some(ref mut m) = metrics {
+        m.mark_processing_done();
+    }
+
+    // Add space after punctuation (do this even if tool was called, for logging)
     log("Adding trailing space after punctuation...", &config.audio.log_file);
     let text = if config.integration.add_space_after_punctuation {
         clipboard::add_trailing_space_after_punctuation(&final_text)
@@ -255,57 +264,66 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     };
     log(&format!("Final text: '{}'", text), &config.audio.log_file);
 
-    if let Some(ref mut m) = metrics {
-        m.mark_processing_done();
-    }
+    // If a tool was called, just show notification and skip paste
+    if tool_was_called {
+        log("Tool called - skipping clipboard and paste, showing notification only", &config.audio.log_file);
+        notifications::notify("✅ Tool executed", &text, 3000).ok();
 
-    // Copy to clipboard
-    log("Copying to clipboard...", &config.audio.log_file);
-    match clipboard::copy_to_clipboard(&text) {
-        Ok(_) => {
-            log("Clipboard copy successful", &config.audio.log_file);
-            if let Some(ref mut m) = metrics {
-                m.mark_clipboard_done();
-            }
+        if let Some(ref mut m) = metrics {
+            m.mark_clipboard_done();
+            m.mark_paste_done();
         }
-        Err(e) => {
-            log(&format!("ERROR: Clipboard copy failed: {}", e), &config.audio.log_file);
-            eprintln!("Clipboard error: {}", e);
-            return Err(e);
-        }
-    }
-
-    // Create preview
-    let preview = if text.len() > 100 {
-        format!("{}...", &text[..100])
     } else {
-        text.clone()
-    };
-    log(&format!("Preview: '{}'", preview), &config.audio.log_file);
+        // Normal flow: copy to clipboard and paste
 
-    // Auto-paste if enabled
-    if config.integration.auto_paste {
-        log("Attempting auto-paste...", &config.audio.log_file);
-        match paste::paste_from_clipboard() {
+        // Copy to clipboard
+        log("Copying to clipboard...", &config.audio.log_file);
+        match clipboard::copy_to_clipboard(&text) {
             Ok(_) => {
-                log("Paste successful", &config.audio.log_file);
+                log("Clipboard copy successful", &config.audio.log_file);
                 if let Some(ref mut m) = metrics {
-                    m.mark_paste_done();
+                    m.mark_clipboard_done();
                 }
-                notifications::notify_transcription_pasted(&preview).ok();
             }
             Err(e) => {
-                log(&format!("WARNING: Paste failed: {}, clipboard only", e), &config.audio.log_file);
-                notifications::notify_transcription_copied(&preview).ok();
+                log(&format!("ERROR: Clipboard copy failed: {}", e), &config.audio.log_file);
+                eprintln!("Clipboard error: {}", e);
+                return Err(e);
             }
         }
-    } else {
+
+        // Create preview
+        let preview = if text.len() > 100 {
+            format!("{}...", &text[..100])
+        } else {
+            text.clone()
+        };
+        log(&format!("Preview: '{}'", preview), &config.audio.log_file);
+
+        // Auto-paste if enabled
+        if config.integration.auto_paste {
+            log("Attempting auto-paste...", &config.audio.log_file);
+            match paste::paste_from_clipboard() {
+                Ok(_) => {
+                    log("Paste successful", &config.audio.log_file);
+                    if let Some(ref mut m) = metrics {
+                        m.mark_paste_done();
+                    }
+                    notifications::notify_transcription_pasted(&preview).ok();
+                }
+                Err(e) => {
+                    log(&format!("WARNING: Paste failed: {}, clipboard only", e), &config.audio.log_file);
+                    notifications::notify_transcription_copied(&preview).ok();
+                }
+            }
+        } else {
         log("Auto-paste disabled in config, clipboard only", &config.audio.log_file);
         // Mark paste as done even if disabled, to track total workflow time
         if let Some(ref mut m) = metrics {
             m.mark_paste_done();
         }
         notifications::notify_transcription_copied(&preview).ok();
+        }
     }
 
     // Log performance metrics
@@ -550,7 +568,7 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
 }
 
 /// Process transcribed text with Groq API using specified prompt
-fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<String, Box<dyn Error>> {
+fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<transcribe_rs::groq::CompletionResult, Box<dyn Error>> {
     use transcribe_rs::{groq, prompts};
 
     log(&format!("Loading prompt: {}", prompt_name), log_file);
@@ -560,9 +578,9 @@ fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<St
     let client = groq::GroqClient::from_env_file()?;
 
     log("Sending request to Groq API...", log_file);
-    let processed_text = client.complete(&prompt, text)?;
+    let result = client.complete(&prompt, text)?;
 
-    Ok(processed_text)
+    Ok(result)
 }
 
 /// Call the transcribe-client binary to transcribe a file

@@ -30,8 +30,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("\nSending request...");
 
         match client.complete(&real_prompt, test_input) {
-            Ok(response) => {
-                println!("✅ Response: {}", response);
+            Ok(result) => {
+                println!("✅ Response: {}", result.text);
+                println!("Tool called: {}", result.tool_called);
             }
             Err(e) => {
                 println!("❌ Error: {}", e);

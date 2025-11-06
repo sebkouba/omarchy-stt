@@ -35,6 +35,13 @@ pub struct ToolResult {
     pub message: String,
 }
 
+/// Completion result with tool execution tracking
+#[derive(Debug, Clone)]
+pub struct CompletionResult {
+    pub text: String,
+    pub tool_called: bool,
+}
+
 /// Chat message for API requests
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Message {
@@ -139,15 +146,15 @@ impl GroqClient {
     /// * `transcription` - The transcribed text to process
     ///
     /// # Returns
-    /// The processed text from the LLM
-    pub fn complete(&self, prompt: &str, transcription: &str) -> Result<String, Box<dyn Error>> {
+    /// CompletionResult with the processed text and whether a tool was called
+    pub fn complete(&self, prompt: &str, transcription: &str) -> Result<CompletionResult, Box<dyn Error>> {
         // Use tokio runtime to run async code
         let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(self.complete_async(prompt, transcription))
     }
 
     /// Async version of complete with full tool calling support
-    async fn complete_async(&self, prompt: &str, transcription: &str) -> Result<String, Box<dyn Error>> {
+    async fn complete_async(&self, prompt: &str, transcription: &str) -> Result<CompletionResult, Box<dyn Error>> {
         // Kimi requires this exact system prompt according to the docs
         let system_prompt = "You are Kimi, an AI assistant created by Moonshot AI.";
 
@@ -183,6 +190,7 @@ impl GroqClient {
 
         // Tool calling loop - iterate until finish_reason is not "tool_calls"
         let mut finish_reason: Option<String> = None;
+        let mut tool_was_called = false;
 
         for iteration in 0..MAX_TOOL_ITERATIONS {
             let request = ApiRequest {
@@ -229,6 +237,9 @@ impl GroqClient {
             if finish_reason.as_deref() == Some("tool_calls") {
                 log("Model returned finish_reason='tool_calls' - executing tools");
 
+                // Mark that a tool was called
+                tool_was_called = true;
+
                 // Model wants to call tools - append the assistant message
                 messages.push(choice.message.clone());
 
@@ -267,7 +278,10 @@ impl GroqClient {
 
             // Not a tool call - return the final content
             if let Some(ref content) = choice.message.content {
-                return Ok(content.clone());
+                return Ok(CompletionResult {
+                    text: content.clone(),
+                    tool_called: tool_was_called,
+                });
             }
 
             return Err(format!("Unexpected response at iteration {}: finish_reason={:?}, no content", iteration, finish_reason).into());
@@ -452,6 +466,10 @@ mod tests {
             "say test passed"
         );
         assert!(result.is_ok());
+        if let Ok(completion) = result {
+            assert!(!completion.tool_called);
+            assert!(completion.text.contains("test passed"));
+        }
     }
 
     #[tokio::test]
@@ -489,10 +507,13 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        if let Ok(response) = result {
-            println!("Response: {}", response);
+        if let Ok(completion) = result {
+            println!("Response: {}", completion.text);
+            println!("Tool called: {}", completion.tool_called);
             // The response should confirm the action
-            assert!(response.to_lowercase().contains("led") || response.to_lowercase().contains("light"));
+            assert!(completion.text.to_lowercase().contains("led") || completion.text.to_lowercase().contains("light"));
+            // Tool should have been called
+            assert!(completion.tool_called);
         }
     }
 }

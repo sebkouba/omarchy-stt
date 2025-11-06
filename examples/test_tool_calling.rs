@@ -27,9 +27,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("(Check /tmp/ptt_rust_debug.log for detailed request/response)\n");
 
         match client.complete(test_prompt, test_input) {
-            Ok(response) => {
+            Ok(result) => {
                 println!("✅ Success!");
-                println!("Response: {}", response);
+                println!("Response: {}", result.text);
+                println!("Tool called: {}", result.tool_called);
             }
             Err(e) => {
                 println!("❌ Error: {}", e);
