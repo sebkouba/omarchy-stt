@@ -176,7 +176,6 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
 
                 let mut chunk = vec![0u8; 16384]; // 8192 samples = 0.5 seconds @ 16kHz
                 let mut samples_written = 0;
-                let mut last_log = Instant::now();
 
                 loop {
                     match stdout.read(&mut chunk) {
@@ -203,18 +202,6 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
                             }
 
                             samples_written += samples.len();
-
-                            // Log stats every 10 seconds
-                            if last_log.elapsed() > Duration::from_secs(10) {
-                                let stats = buffer.lock().unwrap().stats();
-                                log(&format!(
-                                    "Buffer stats: written={} samples, fullness={:.1}%, uptime={:.0}s",
-                                    stats.total_written,
-                                    stats.fullness_percent,
-                                    state.lock().unwrap().start_time.elapsed().as_secs()
-                                ));
-                                last_log = Instant::now();
-                            }
                         }
                         Err(e) => {
                             log(&format!("ERROR: Read error from FFmpeg: {}", e));

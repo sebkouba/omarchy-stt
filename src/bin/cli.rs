@@ -136,7 +136,14 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    // Stop recording
+    // Send notification immediately for instant user feedback
+    log("Sending stop notification...", &config.audio.log_file);
+    if let Err(e) = notifications::notify_recording_stopped() {
+        log(&format!("WARNING: Notification failed: {}", e), &config.audio.log_file);
+    }
+    println!("⏹️  Recording stopped");
+
+    // Stop recording (may take 0.6-1.6s depending on audio length)
     log("Stopping recording...", &config.audio.log_file);
     let audio_file = recording::stop_recording(&config.audio)?;
     log(&format!("Audio file: {:?}", audio_file), &config.audio.log_file);
@@ -144,12 +151,6 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     if let Some(ref mut m) = metrics {
         m.mark_recording_stop();
     }
-
-    log("Sending stop notification...", &config.audio.log_file);
-    if let Err(e) = notifications::notify_recording_stopped() {
-        log(&format!("WARNING: Notification failed: {}", e), &config.audio.log_file);
-    }
-    println!("⏹️  Recording stopped");
 
     // Transcribe using daemon client
     println!("📝 Transcribing...");
