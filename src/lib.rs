@@ -67,6 +67,7 @@ pub mod prompts;
 pub mod recording;
 pub mod terminal_detect;
 pub mod timing;
+pub mod tools;
 pub mod transcription_corrections;
 
 use std::path::Path;

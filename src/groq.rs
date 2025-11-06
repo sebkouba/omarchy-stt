@@ -3,6 +3,7 @@ use serde_json::json;
 use std::error::Error;
 use std::fs;
 use std::io::Write;
+use crate::tools::ToolConfig;
 
 /// Append a log message to the debug log
 fn log(message: &str) {
@@ -18,14 +19,13 @@ fn log(message: &str) {
 
 const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL: &str = "moonshotai/kimi-k2-instruct-0905";
-const LED_API_URL: &str = "http://192.168.2.40/json/state";
 const MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Groq API client for LLM post-processing with tool calling support
 pub struct GroqClient {
     api_key: String,
     http_client: reqwest::Client,
-    enable_tools: bool,
+    tools: Vec<ToolConfig>,
 }
 
 /// Tool execution result
@@ -116,27 +116,29 @@ struct Choice {
 }
 
 impl GroqClient {
-    /// Creates a new Groq client with the given API key
-    pub fn new(api_key: String, enable_tools: bool) -> Self {
+    /// Creates a new Groq client with the given API key and tools
+    pub fn new(api_key: String, tools: Vec<ToolConfig>) -> Self {
         let http_client = reqwest::Client::new();
 
         Self {
             api_key,
             http_client,
-            enable_tools
+            tools,
         }
     }
 
-    /// Creates a new Groq client by loading API key from .env file
+    /// Creates a new Groq client by loading API key from .env file and tools from config
     pub fn from_env_file() -> Result<Self, Box<dyn Error>> {
         let api_key = load_groq_api_key()?;
-        Ok(Self::new(api_key, true))
+        let tools = crate::tools::load_tools()?;
+        log(&format!("Loaded {} tools from config", tools.len()));
+        Ok(Self::new(api_key, tools))
     }
 
     /// Creates a new Groq client with tools disabled
     pub fn from_env_file_no_tools() -> Result<Self, Box<dyn Error>> {
         let api_key = load_groq_api_key()?;
-        Ok(Self::new(api_key, false))
+        Ok(Self::new(api_key, Vec::new()))
     }
 
     /// Sends a completion request to Groq API with tool calling support
@@ -178,18 +180,14 @@ impl GroqClient {
             },
         ];
 
-        // Define tools if enabled
-        let tools = if self.enable_tools {
-            Some(vec![
-                self.create_led_on_tool(),
-                self.create_led_off_tool(),
-            ])
+        // Convert ToolConfig to API Tool format
+        let tools = if !self.tools.is_empty() {
+            Some(self.create_tools_from_config())
         } else {
             None
         };
 
         // Tool calling loop - iterate until finish_reason is not "tool_calls"
-        let mut finish_reason: Option<String> = None;
         let mut tool_was_called = false;
 
         for iteration in 0..MAX_TOOL_ITERATIONS {
@@ -208,7 +206,7 @@ impl GroqClient {
             if let Ok(request_json) = serde_json::to_string_pretty(&request) {
                 log(&format!("Request JSON:\n{}", request_json));
             }
-            log(&format!("Tools enabled: {}", self.enable_tools));
+            log(&format!("Tools count: {}", self.tools.len()));
             log(&format!("Tools in request: {}", if tools.is_some() { "YES" } else { "NO" }));
 
             let response = self.http_client
@@ -230,7 +228,7 @@ impl GroqClient {
                 .first()
                 .ok_or("No response from Groq API")?;
 
-            finish_reason = choice.finish_reason.clone();
+            let finish_reason = choice.finish_reason.clone();
             log(&format!("finish_reason: {:?}", finish_reason));
 
             // Check finish_reason to see if model wants to call tools
@@ -290,98 +288,69 @@ impl GroqClient {
         Err(format!("Max tool iterations ({}) exceeded", MAX_TOOL_ITERATIONS).into())
     }
 
-    /// Creates the LED on tool definition
-    fn create_led_on_tool(&self) -> Tool {
-        Tool {
-            tool_type: "function".to_string(),
-            function: FunctionDef {
-                name: "turn_leds_on".to_string(),
-                description: "Turn on the display background LEDs. Call this tool when the user asks to turn on, enable, activate, switch on, or light up the LEDs, lights, or display background. This function takes no parameters and will physically turn on the LED hardware.".to_string(),
-                parameters: json!({
+    /// Convert ToolConfig to API Tool format
+    fn create_tools_from_config(&self) -> Vec<Tool> {
+        self.tools
+            .iter()
+            .map(|tool_config| {
+                // Build parameters JSON schema
+                let mut properties = serde_json::Map::new();
+                let mut required = Vec::new();
+
+                for (param_name, param_schema) in &tool_config.parameters {
+                    properties.insert(
+                        param_name.clone(),
+                        json!({
+                            "type": param_schema.param_type,
+                            "description": param_schema.description,
+                        }),
+                    );
+                    required.push(param_name.clone());
+                }
+
+                let parameters = json!({
                     "type": "object",
-                    "properties": {},
-                    "required": []
-                }),
-            },
-        }
-    }
+                    "properties": properties,
+                    "required": required,
+                });
 
-    /// Creates the LED off tool definition
-    fn create_led_off_tool(&self) -> Tool {
-        Tool {
-            tool_type: "function".to_string(),
-            function: FunctionDef {
-                name: "turn_leds_off".to_string(),
-                description: "Turn off the display background LEDs. Call this tool when the user asks to turn off, disable, deactivate, switch off, or extinguish the LEDs, lights, or display background. This function takes no parameters and will physically turn off the LED hardware.".to_string(),
-                parameters: json!({
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }),
-            },
-        }
-    }
-
-    /// Executes a tool call
-    async fn execute_tool(&self, function_name: &str, _args: &str) -> Result<ToolResult, Box<dyn Error>> {
-        match function_name {
-            "turn_leds_on" => self.turn_leds_on().await,
-            "turn_leds_off" => self.turn_leds_off().await,
-            _ => Err(format!("Unknown tool: {}", function_name).into()),
-        }
-    }
-
-    /// Turns on the LEDs by calling the HTTP API
-    async fn turn_leds_on(&self) -> Result<ToolResult, Box<dyn Error>> {
-        let payload = json!({
-            "on": true,
-            "v": true
-        });
-
-        let response = self.http_client
-            .post(LED_API_URL)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            Ok(ToolResult {
-                success: true,
-                message: "LEDs turned on successfully".to_string(),
+                Tool {
+                    tool_type: "function".to_string(),
+                    function: FunctionDef {
+                        name: tool_config.name.clone(),
+                        description: tool_config.description.clone(),
+                        parameters,
+                    },
+                }
             })
+            .collect()
+    }
+
+    /// Executes a tool call using the generic tools module
+    async fn execute_tool(&self, function_name: &str, args: &str) -> Result<ToolResult, Box<dyn Error>> {
+        // Find the tool config
+        let tool_config = self
+            .tools
+            .iter()
+            .find(|t| t.name == function_name)
+            .ok_or_else(|| format!("Unknown tool: {}", function_name))?;
+
+        // Parse arguments
+        let params: serde_json::Value = if args.is_empty() {
+            json!({})
         } else {
-            Ok(ToolResult {
-                success: false,
-                message: format!("Failed to turn on LEDs: HTTP {}", response.status()),
-            })
-        }
-    }
+            serde_json::from_str(args)?
+        };
 
-    /// Turns off the LEDs by calling the HTTP API
-    async fn turn_leds_off(&self) -> Result<ToolResult, Box<dyn Error>> {
-        let payload = json!({
-            "on": false
-        });
+        log(&format!("Executing tool: {} with params: {:?}", function_name, params));
 
-        let response = self.http_client
-            .post(LED_API_URL)
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await?;
+        // Execute using the tools module
+        let result = crate::tools::execute_tool(tool_config, &params)?;
 
-        if response.status().is_success() {
-            Ok(ToolResult {
-                success: true,
-                message: "LEDs turned off successfully".to_string(),
-            })
-        } else {
-            Ok(ToolResult {
-                success: false,
-                message: format!("Failed to turn off LEDs: HTTP {}", response.status()),
-            })
-        }
+        Ok(ToolResult {
+            success: true,
+            message: result,
+        })
     }
 }
 
@@ -437,24 +406,45 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = GroqClient::new("test_key".to_string(), true);
-        assert!(client.enable_tools);
+        let tools = vec![];
+        let client = GroqClient::new("test_key".to_string(), tools);
+        assert_eq!(client.tools.len(), 0);
 
-        let client_no_tools = GroqClient::new("test_key".to_string(), false);
-        assert!(!client_no_tools.enable_tools);
+        let tools = vec![];
+        let client_no_tools = GroqClient::new("test_key".to_string(), tools);
+        assert_eq!(client_no_tools.tools.len(), 0);
     }
 
     #[test]
     fn test_tool_definitions() {
-        let client = GroqClient::new("test_key".to_string(), true);
+        use crate::tools::{ToolConfig, ParameterSchema};
+        use std::collections::HashMap;
 
-        let led_on_tool = client.create_led_on_tool();
-        assert_eq!(led_on_tool.function.name, "turn_leds_on");
-        assert!(led_on_tool.function.description.contains("LED"));
+        let mut params = HashMap::new();
+        params.insert(
+            "test_param".to_string(),
+            ParameterSchema {
+                param_type: "string".to_string(),
+                description: "Test parameter".to_string(),
+            },
+        );
 
-        let led_off_tool = client.create_led_off_tool();
-        assert_eq!(led_off_tool.function.name, "turn_leds_off");
-        assert!(led_off_tool.function.description.contains("LED"));
+        let tool_config = ToolConfig {
+            name: "test_tool".to_string(),
+            description: "Test tool description".to_string(),
+            command: "echo".to_string(),
+            args: vec!["{test_param}".to_string()],
+            backend: "cli".to_string(),
+            http: None,
+            parameters: params,
+        };
+
+        let client = GroqClient::new("test_key".to_string(), vec![tool_config]);
+        let tools = client.create_tools_from_config();
+
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].function.name, "test_tool");
+        assert!(tools[0].function.description.contains("Test tool"));
     }
 
     #[test]
@@ -472,48 +462,21 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[ignore] // Requires LED device on network
-    async fn test_led_control() {
-        let client = GroqClient::new("test_key".to_string(), true);
-
-        // Test turning LEDs on
-        let result = client.turn_leds_on().await;
-        assert!(result.is_ok());
-        if let Ok(tool_result) = result {
-            println!("LED ON result: {:?}", tool_result);
-        }
-
-        // Wait a bit
-        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-        // Test turning LEDs off
-        let result = client.turn_leds_off().await;
-        assert!(result.is_ok());
-        if let Ok(tool_result) = result {
-            println!("LED OFF result: {:?}", tool_result);
-        }
-    }
-
     #[test]
-    #[ignore] // Requires valid API key, network access, and LED device
+    #[ignore] // Requires valid API key, network access, and tools configured
     fn test_tool_calling_integration() {
-        let client = GroqClient::from_env_file().expect("Failed to load API key");
+        let client = GroqClient::from_env_file().expect("Failed to load API key and tools");
 
-        // Test a command that should trigger tool calling
+        // Test a command that should trigger tool calling (if tools are configured)
         let result = client.complete(
-            "When the user asks you to control LEDs, use the appropriate tool. Always respond confirming the action.",
-            "turn on my LEDs"
+            "When the user asks you to use tools, use the appropriate tool. Always respond confirming the action.",
+            "test command"
         );
 
         assert!(result.is_ok());
         if let Ok(completion) = result {
             println!("Response: {}", completion.text);
             println!("Tool called: {}", completion.tool_called);
-            // The response should confirm the action
-            assert!(completion.text.to_lowercase().contains("led") || completion.text.to_lowercase().contains("light"));
-            // Tool should have been called
-            assert!(completion.tool_called);
         }
     }
 }
