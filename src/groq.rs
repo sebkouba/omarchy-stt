@@ -32,6 +32,8 @@ struct Message {
     tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
 }
 
 /// Tool call structure
@@ -90,6 +92,7 @@ struct ApiResponse {
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: Message,
+    finish_reason: Option<String>,
 }
 
 impl GroqClient {
@@ -144,12 +147,14 @@ impl GroqClient {
                 content: Some(system_prompt.to_string()),
                 tool_calls: None,
                 tool_call_id: None,
+                name: None,
             },
             Message {
                 role: "user".to_string(),
                 content: Some(user_message),
                 tool_calls: None,
                 tool_call_id: None,
+                name: None,
             },
         ];
 
@@ -163,12 +168,14 @@ impl GroqClient {
             None
         };
 
-        // Tool calling loop - iterate until we get a final text response
-        for _iteration in 0..MAX_TOOL_ITERATIONS {
+        // Tool calling loop - iterate until finish_reason is not "tool_calls"
+        let mut finish_reason: Option<String> = None;
+
+        for iteration in 0..MAX_TOOL_ITERATIONS {
             let request = ApiRequest {
                 model: MODEL.to_string(),
                 messages: messages.clone(),
-                temperature: 0.6,
+                temperature: 0.3,
                 max_completion_tokens: 4096,
                 top_p: 1.0,
                 tools: tools.clone(),
@@ -192,51 +199,43 @@ impl GroqClient {
                 .first()
                 .ok_or("No response from Groq API")?;
 
-            // Check if the model wants to call tools
-            if let Some(tool_calls) = &choice.message.tool_calls {
-                if tool_calls.is_empty() {
-                    // No tool calls, just return the text
-                    if let Some(ref content) = choice.message.content {
-                        return Ok(content.clone());
-                    }
-                    return Err("No content in response".into());
-                }
+            finish_reason = choice.finish_reason.clone();
 
-                // Add the assistant's message with tool calls to history
-                messages.push(Message {
-                    role: "assistant".to_string(),
-                    content: choice.message.content.clone(),
-                    tool_calls: Some(tool_calls.clone()),
-                    tool_call_id: None,
-                });
+            // Check finish_reason to see if model wants to call tools
+            if finish_reason.as_deref() == Some("tool_calls") {
+                // Model wants to call tools - append the assistant message
+                messages.push(choice.message.clone());
 
                 // Execute each tool call
-                for tool_call in tool_calls {
-                    let function_name = &tool_call.function.name;
-                    let function_args = &tool_call.function.arguments;
+                if let Some(tool_calls) = &choice.message.tool_calls {
+                    for tool_call in tool_calls {
+                        let function_name = &tool_call.function.name;
+                        let function_args = &tool_call.function.arguments;
 
-                    // Execute the tool
-                    let result = self.execute_tool(function_name, function_args).await?;
+                        // Execute the tool
+                        let result = self.execute_tool(function_name, function_args).await?;
 
-                    // Add tool result to messages
-                    messages.push(Message {
-                        role: "tool".to_string(),
-                        content: Some(serde_json::to_string(&result)?),
-                        tool_calls: None,
-                        tool_call_id: Some(tool_call.id.clone()),
-                    });
+                        // Add tool result to messages with required fields per docs
+                        messages.push(Message {
+                            role: "tool".to_string(),
+                            tool_call_id: Some(tool_call.id.clone()),
+                            name: Some(function_name.clone()),
+                            content: Some(serde_json::to_string(&result)?),
+                            tool_calls: None,
+                        });
+                    }
                 }
 
                 // Continue the loop to get the final response
                 continue;
             }
 
-            // No tool calls, return the content
+            // Not a tool call - return the final content
             if let Some(ref content) = choice.message.content {
                 return Ok(content.clone());
             }
 
-            return Err("Unexpected response format".into());
+            return Err(format!("Unexpected response at iteration {}: finish_reason={:?}, no content", iteration, finish_reason).into());
         }
 
         Err(format!("Max tool iterations ({}) exceeded", MAX_TOOL_ITERATIONS).into())

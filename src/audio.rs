@@ -4,7 +4,7 @@
 //! to prepare them for transcription engines.
 
 use std::fs::File;
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 
 /// Read WAV file samples and convert them to the required format.
@@ -122,7 +122,7 @@ pub fn write_wav_from_samples(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = File::create(output_path)?;
+    let mut writer = BufWriter::new(File::create(output_path)?);
 
     // Calculate sizes
     let num_samples = samples.len() as u32;
@@ -134,30 +134,32 @@ pub fn write_wav_from_samples(
     let file_size = 36 + data_size;
 
     // Write RIFF header (12 bytes)
-    file.write_all(b"RIFF")?;
-    file.write_all(&file_size.to_le_bytes())?;
-    file.write_all(b"WAVE")?;
+    writer.write_all(b"RIFF")?;
+    writer.write_all(&file_size.to_le_bytes())?;
+    writer.write_all(b"WAVE")?;
 
     // Write fmt chunk (24 bytes)
-    file.write_all(b"fmt ")?;
-    file.write_all(&16u32.to_le_bytes())?; // Chunk size
-    file.write_all(&1u16.to_le_bytes())?;  // PCM format
-    file.write_all(&num_channels.to_le_bytes())?;
-    file.write_all(&sample_rate.to_le_bytes())?;
-    file.write_all(&byte_rate.to_le_bytes())?;
-    file.write_all(&block_align.to_le_bytes())?;
-    file.write_all(&bits_per_sample.to_le_bytes())?;
+    writer.write_all(b"fmt ")?;
+    writer.write_all(&16u32.to_le_bytes())?; // Chunk size
+    writer.write_all(&1u16.to_le_bytes())?;  // PCM format
+    writer.write_all(&num_channels.to_le_bytes())?;
+    writer.write_all(&sample_rate.to_le_bytes())?;
+    writer.write_all(&byte_rate.to_le_bytes())?;
+    writer.write_all(&block_align.to_le_bytes())?;
+    writer.write_all(&bits_per_sample.to_le_bytes())?;
 
     // Write data chunk (8 bytes + data)
-    file.write_all(b"data")?;
-    file.write_all(&data_size.to_le_bytes())?;
+    writer.write_all(b"data")?;
+    writer.write_all(&data_size.to_le_bytes())?;
 
-    // Write sample data
-    for &sample in samples {
-        file.write_all(&sample.to_le_bytes())?;
-    }
+    // Write sample data - batch convert then write for performance
+    let sample_bytes: Vec<u8> = samples
+        .iter()
+        .flat_map(|&sample| sample.to_le_bytes())
+        .collect();
+    writer.write_all(&sample_bytes)?;
 
-    file.flush()?;
+    writer.flush()?;
     Ok(())
 }
 
