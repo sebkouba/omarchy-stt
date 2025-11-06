@@ -2,6 +2,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::error::Error;
 use std::fs;
+use std::io::Write;
+
+/// Append a log message to the debug log
+fn log(message: &str) {
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/ptt_rust_debug.log")
+    {
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+        writeln!(file, "[{}] [groq] {}", timestamp, message).ok();
+    }
+}
 
 const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL: &str = "moonshotai/kimi-k2-instruct-0905";
@@ -182,6 +195,14 @@ impl GroqClient {
                 tool_choice: if tools.is_some() { Some("auto".to_string()) } else { None },
             };
 
+            // Log the request for debugging
+            log(&format!("=== Iteration {} ===", iteration));
+            if let Ok(request_json) = serde_json::to_string_pretty(&request) {
+                log(&format!("Request JSON:\n{}", request_json));
+            }
+            log(&format!("Tools enabled: {}", self.enable_tools));
+            log(&format!("Tools in request: {}", if tools.is_some() { "YES" } else { "NO" }));
+
             let response = self.http_client
                 .post(GROQ_API_URL)
                 .header("Content-Type", "application/json")
@@ -191,6 +212,8 @@ impl GroqClient {
                 .await?;
 
             let response_text = response.text().await?;
+            log(&format!("Response text: {}", response_text));
+
             let api_response: ApiResponse = serde_json::from_str(&response_text)
                 .map_err(|e| format!("Failed to parse response: {} | Response: {}", e, response_text))?;
 
@@ -200,20 +223,28 @@ impl GroqClient {
                 .ok_or("No response from Groq API")?;
 
             finish_reason = choice.finish_reason.clone();
+            log(&format!("finish_reason: {:?}", finish_reason));
 
             // Check finish_reason to see if model wants to call tools
             if finish_reason.as_deref() == Some("tool_calls") {
+                log("Model returned finish_reason='tool_calls' - executing tools");
+
                 // Model wants to call tools - append the assistant message
                 messages.push(choice.message.clone());
 
                 // Execute each tool call
                 if let Some(tool_calls) = &choice.message.tool_calls {
+                    log(&format!("Found {} tool call(s)", tool_calls.len()));
+
                     for tool_call in tool_calls {
                         let function_name = &tool_call.function.name;
                         let function_args = &tool_call.function.arguments;
 
+                        log(&format!("Executing tool: {} with args: {}", function_name, function_args));
+
                         // Execute the tool
                         let result = self.execute_tool(function_name, function_args).await?;
+                        log(&format!("Tool result: {:?}", result));
 
                         // Add tool result to messages with required fields per docs
                         messages.push(Message {
@@ -224,10 +255,14 @@ impl GroqClient {
                             tool_calls: None,
                         });
                     }
+                } else {
+                    log("WARNING: finish_reason='tool_calls' but no tool_calls in message!");
                 }
 
                 // Continue the loop to get the final response
                 continue;
+            } else {
+                log(&format!("Model did not request tool calls. Content: {:?}", choice.message.content));
             }
 
             // Not a tool call - return the final content
@@ -247,7 +282,7 @@ impl GroqClient {
             tool_type: "function".to_string(),
             function: FunctionDef {
                 name: "turn_leds_on".to_string(),
-                description: "Turn on the display background LEDs".to_string(),
+                description: "Turn on the display background LEDs. Call this tool when the user asks to turn on, enable, activate, switch on, or light up the LEDs, lights, or display background. This function takes no parameters and will physically turn on the LED hardware.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {},
@@ -263,7 +298,7 @@ impl GroqClient {
             tool_type: "function".to_string(),
             function: FunctionDef {
                 name: "turn_leds_off".to_string(),
-                description: "Turn off the display background LEDs".to_string(),
+                description: "Turn off the display background LEDs. Call this tool when the user asks to turn off, disable, deactivate, switch off, or extinguish the LEDs, lights, or display background. This function takes no parameters and will physically turn off the LED hardware.".to_string(),
                 parameters: json!({
                     "type": "object",
                     "properties": {},
