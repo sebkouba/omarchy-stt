@@ -256,8 +256,9 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     // Add space after punctuation (do this even if tool was called, for logging)
-    log("Adding trailing space after punctuation...", &config.audio.log_file);
+
     let text = if config.integration.add_space_after_punctuation {
+        log("Adding trailing space after punctuation...", &config.audio.log_file);
         clipboard::add_trailing_space_after_punctuation(&final_text)
     } else {
         final_text
