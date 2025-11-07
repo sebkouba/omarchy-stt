@@ -1,8 +1,8 @@
 {
   "name": "claude_worktree",
   "description": "Create a git worktree and launch Claude Code to implement a feature. Call when user says 'create worktree for X', 'new branch for Y', 'claude code work on Z', 'start working on feature X'. The branch name will be auto-generated from the task description.",
-  "command": "/home/seb/code/cloned/transcribe-rs-v2/claude-worktree.sh",
-  "args": ["{branch_name}", "{task_description}", "--workspace", "{workspace}"],
+  "command": "/bin/bash",
+  "args": ["-c", "nohup \"$0\" \"$@\" >/dev/null 2>&1 & disown", "/home/seb/code/cloned/transcribe-rs-v2/claude-worktree.sh", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
   "parameters": {
     "branch_name": {
       "type": "string",
