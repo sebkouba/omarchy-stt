@@ -1,0 +1,27 @@
+{
+  "name": "claude_worktree",
+  "description": "Create a git worktree and launch Claude Code to implement a feature in any project. Call when user says 'create worktree in [project] for X', 'new branch in transcribe for Y'. Supports: transcribe (default), transcribe-v1, or custom path.",
+  "command": "/home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh",
+  "args": ["{project_path}", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
+  "parameters": {
+    "project_path": {
+      "type": "string",
+      "description": "Project to work on. Can be: '/home/seb/code/cloned/transcribe-rs-v2' (default), '/home/seb/code/cloned/transcribe-rs' (v1), or any other git repo path. If user just says 'transcribe', use v2 path.",
+      "default": "/home/seb/code/cloned/transcribe-rs-v2"
+    },
+    "branch_name": {
+      "type": "string",
+      "description": "Git branch name in kebab-case (e.g., 'add-led-status', 'fix-audio-bug'). Auto-generate from task: lowercase, replace spaces with hyphens, remove special chars."
+    },
+    "task_description": {
+      "type": "string",
+      "description": "Clear description of the feature/fix. Will be given to Claude Code. Example: 'Add LED status indicator that shows when recording is active'."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Optional Hyprland workspace number (1-10). Leave empty for current workspace.",
+      "optional": true,
+      "default": ""
+    }
+  }
+}

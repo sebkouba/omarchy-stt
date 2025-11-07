@@ -1,0 +1,21 @@
+{
+  "name": "claude_worktree",
+  "description": "Create a git worktree and launch Claude Code to implement a feature. Call when user says 'create worktree for X', 'new branch for Y', 'claude code work on Z', 'start working on feature X'. The branch name will be auto-generated from the task description.",
+  "command": "/home/seb/code/cloned/transcribe-rs-v2/claude-worktree.sh",
+  "args": ["{branch_name}", "{task_description}", "--workspace", "{workspace}"],
+  "parameters": {
+    "branch_name": {
+      "type": "string",
+      "description": "Git branch name (kebab-case, e.g., 'add-led-status', 'fix-audio-bug'). Auto-generate from task: convert to lowercase, replace spaces with hyphens, remove special chars."
+    },
+    "task_description": {
+      "type": "string",
+      "description": "Clear description of what needs to be implemented. This will be given to Claude Code. Example: 'Add LED status indicator that shows when recording is active' or 'Fix the audio clipping issue in recording.rs'."
+    },
+    "workspace": {
+      "type": "string",
+      "description": "Optional Hyprland workspace number (1-10) to open the terminal in. If not specified, opens in current workspace.",
+      "optional": true
+    }
+  }
+}
