@@ -111,40 +111,40 @@ fi
 # Launch based on flags
 if [ "$NO_TERMINAL" = true ] || [ "$BACKGROUND" = true ]; then
     # Launch without terminal
-    (cd "$WORKTREE_PATH" && claude-code > /dev/null 2>&1 &)
-    echo "Claude Code launched in background"
+    (cd "$WORKTREE_PATH" && claude --dangerously-skip-permissions "$(cat .claude-task.md)" > /dev/null 2>&1 &)
+    echo "Claude launched in background"
 else
     # Launch in new terminal window
     TERMINAL=$(detect_terminal)
-    
+
     if [ -z "$TERMINAL" ]; then
         echo "Warning: No terminal emulator detected, launching in current terminal"
         cd "$WORKTREE_PATH"
         echo "Task: $TASK_DESC"
         echo ""
-        claude-code
+        claude --dangerously-skip-permissions "$(cat .claude-task.md)"
     else
         case $TERMINAL in
             kitty)
-                kitty --directory "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                kitty --directory "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
             alacritty)
-                alacritty --working-directory "$WORKTREE_PATH" -e bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                alacritty --working-directory "$WORKTREE_PATH" -e bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
             foot)
-                foot --working-directory "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                foot --working-directory "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
             wezterm)
-                wezterm start --cwd "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                wezterm start --cwd "$WORKTREE_PATH" bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
             gnome-terminal)
-                gnome-terminal --working-directory="$WORKTREE_PATH" -- bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                gnome-terminal --working-directory="$WORKTREE_PATH" -- bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
             konsole)
-                konsole --workdir "$WORKTREE_PATH" -e bash -c "echo 'Task: $TASK_DESC'; echo ''; claude-code; exec bash" &
+                konsole --workdir "$WORKTREE_PATH" -e bash -c "echo 'Task: $TASK_DESC'; echo ''; claude --dangerously-skip-permissions \"\$(cat .claude-task.md)\"; exec bash" &
                 ;;
         esac
-        echo "Opened new $TERMINAL window with Claude Code"
+        echo "Opened new $TERMINAL window with Claude"
     fi
 fi
 
