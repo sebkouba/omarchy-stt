@@ -1,0 +1,140 @@
+{
+  "tools": [
+    {
+      "name": "open_url",
+      "description": "Open any URL in Firefox. Call when user says 'open github.com', 'go to localhost 3000', 'browse to anthropic.com', 'show me stackoverflow.com/questions/123'. Works with any domain, localhost with port numbers, or full URLs.",
+      "command": "firefox",
+      "args": ["--new-window", "{url}"],
+      "parameters": {
+        "url": {
+          "type": "string",
+          "description": "Full URL including protocol (e.g., 'https://github.com', 'http://localhost:3000') OR just domain (e.g., 'github.com', 'anthropic.com'). If user says 'localhost 3000' convert to 'http://localhost:3000'."
+        }
+      }
+    },
+    {
+      "name": "run_shell_command",
+      "description": "Execute any shell command. Call when user explicitly says 'run command...', 'execute...', 'shell command...'. Use for git operations, npm commands, docker commands, system operations, or any CLI task. Do NOT use for opening URLs or window management (those have dedicated tools).",
+      "command": "sh",
+      "args": ["-c", "{command}"],
+      "parameters": {
+        "command": {
+          "type": "string",
+          "description": "Full shell command to execute. Can include pipes, redirects, && chains, etc. Examples: 'npm install react', 'git commit -m \"fix bug\"', 'docker ps', 'cd ~/projects && npm run dev &'"
+        }
+      }
+    },
+    {
+      "name": "hyprland_dispatch",
+      "description": "Execute Hyprland window/workspace management commands. Call when user says 'workspace 3', 'focus firefox', 'fullscreen', 'move window to workspace 5', or any Hyprland-specific window management task.",
+      "command": "hyprctl",
+      "args": ["dispatch", "{action}", "{params}"],
+      "parameters": {
+        "action": {
+          "type": "string",
+          "description": "Hyprland dispatch action (e.g., 'workspace', 'focuswindow', 'fullscreen', 'movetoworkspace', 'exec')"
+        },
+        "params": {
+          "type": "string",
+          "description": "Parameters for the action (e.g., '3' for workspace 3, '^(firefox)' for focusing firefox, 'address:0x...' for specific window). Can be empty string for actions that don't need params."
+        }
+      }
+    },
+    {
+      "name": "ask_claude_code",
+      "description": "Invoke Claude Code CLI to work on the current project. Call when user says 'ask Claude to...', 'have Claude...', 'tell Claude Code...', 'Claude please...'. Use for coding tasks like refactoring, adding features, fixing bugs, writing tests, etc.",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && claude -p '{prompt}'"],
+      "parameters": {
+        "prompt": {
+          "type": "string",
+          "description": "Task or question for Claude Code. Be specific and clear. Examples: 'refactor the groq module to use async/await', 'add tests for the clipboard module', 'fix the type errors in tools.rs', 'explain how the tool calling system works'"
+        }
+      }
+    },
+    {
+      "name": "ask_claude_code_in_directory",
+      "description": "Invoke Claude Code CLI in a specific project directory. Call when user says 'ask Claude to work on transcribe-rs', 'have Claude refactor the website project', or explicitly mentions a project name with a Claude task.",
+      "command": "sh",
+      "args": ["-c", "cd {directory} && claude -p '{prompt}'"],
+      "parameters": {
+        "directory": {
+          "type": "string",
+          "description": "Project directory path (e.g., '/home/seb/code/transcribe-rs-v2', '~/projects/website', '/home/seb/code/myapp')"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Task or question for Claude Code"
+        }
+      }
+    },
+    {
+      "name": "open_app_on_workspace",
+      "description": "Open an application on a specific Hyprland workspace. Call when user says 'open firefox on workspace 3', 'launch terminal on workspace 5', 'start code on workspace 2'.",
+      "command": "sh",
+      "args": ["-c", "hyprctl dispatch workspace {workspace} && {application}"],
+      "parameters": {
+        "workspace": {
+          "type": "integer",
+          "description": "Target workspace number (1-10)"
+        },
+        "application": {
+          "type": "string",
+          "description": "Application command to execute (e.g., 'firefox', 'kitty', 'code', 'chromium')"
+        }
+      }
+    }
+  ],
+  "notes": {
+    "philosophy": "Most operations on Linux are shell commands, so these tools provide semantic hints to the LLM about WHEN to use which pattern. The three core patterns are: (1) open URLs, (2) run shell commands, (3) manage windows. Everything else is just a variation.",
+
+    "why_not_just_run_command": "If you only had 'run_shell_command', the LLM would need to infer everything. By having 'open_url' and 'hyprland_dispatch' as separate tools, you give the LLM clear signals about common patterns. This reduces errors and makes intent clearer.",
+
+    "claude_code_integration": {
+      "ad_hoc_mode": "claude -p 'task description' runs Claude Code in ad hoc mode without a persistent chat",
+      "working_directory": "You need to 'cd' to the project directory first, hence 'sh -c \"cd /path && claude -p...\"'",
+      "current_project": "Update /home/seb/code/current-project to your active project, or use ask_claude_code_in_directory to specify",
+      "examples": [
+        "Say: 'Ask Claude to add tests' → runs in current-project",
+        "Say: 'Ask Claude to refactor transcribe-rs' → extracts directory from context",
+        "Say: 'Have Claude explain the code' → works on current-project"
+      ]
+    },
+
+    "advanced_patterns": {
+      "combining_tools": "You can still create specific tools that combine these patterns. For example, 'npm_install' could be a specialized wrapper around run_shell_command that adds better error handling or working directory context.",
+
+      "when_to_add_specific_tools": [
+        "Frequently used operation (saves token repetition)",
+        "Complex multi-step process that should be atomic",
+        "Operations that need validation or safety checks",
+        "Commands where parameter extraction is tricky"
+      ],
+
+      "generic_vs_specific": "Start generic (6 tools). Add specific tools only when you notice yourself using the same pattern repeatedly."
+    },
+
+    "url_handling": {
+      "localhost_shorthand": "When user says 'localhost 3000', LLM should convert to 'http://localhost:3000'",
+      "domain_shorthand": "When user says 'github.com', LLM should convert to 'https://github.com'",
+      "full_urls": "User can also provide full URLs like 'https://developer.mozilla.org/en-US/docs/Web/API/fetch'"
+    },
+
+    "shell_command_power": {
+      "can_do_anything": [
+        "cd ~/projects && npm run dev & → start dev server in background",
+        "git add -A && git commit -m 'fix' && git push → full git workflow",
+        "docker compose up -d → start containers",
+        "pkill -f node → kill processes",
+        "pacman -Syu → system updates"
+      ],
+      "use_cases": "Anything not covered by open_url or hyprland_dispatch"
+    },
+
+    "directory_management": {
+      "option_1": "Symlink ~/code/current-project to your active project",
+      "option_2": "Use ask_claude_code_in_directory and let LLM extract project name",
+      "option_3": "Always cd in run_shell_command: 'cd ~/code/myproject && npm test'"
+    }
+  }
+}

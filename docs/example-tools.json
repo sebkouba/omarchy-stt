@@ -1,0 +1,199 @@
+{
+  "tools": [
+    {
+      "name": "open_github_repo",
+      "description": "Open a GitHub repository in Firefox. Call when user says 'open github repo anthropics/claude', 'show me the github for torvalds/linux', 'go to github user/repo'",
+      "command": "firefox",
+      "args": ["--new-window", "https://github.com/{repo}"],
+      "parameters": {
+        "repo": {
+          "type": "string",
+          "description": "GitHub repository in format 'owner/repo' (e.g., 'anthropics/claude-code', 'facebook/react')"
+        }
+      }
+    },
+    {
+      "name": "open_localhost",
+      "description": "Open localhost development server in browser. Call when user says 'open localhost 3000', 'show me localhost on port 5173', 'view localhost 8080'",
+      "command": "firefox",
+      "args": ["--new-window", "http://localhost:{port}"],
+      "parameters": {
+        "port": {
+          "type": "integer",
+          "description": "Port number for the local development server (e.g., 3000, 5173, 8080)"
+        }
+      }
+    },
+    {
+      "name": "open_mdn_docs",
+      "description": "Search MDN Web Docs for a topic. Call when user says 'look up fetch API on MDN', 'MDN docs for flexbox', 'search MDN for async await'",
+      "command": "firefox",
+      "args": ["--new-window", "https://developer.mozilla.org/en-US/search?q={query}"],
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query for MDN (e.g., 'fetch API', 'CSS grid', 'Promise')"
+        }
+      }
+    },
+    {
+      "name": "npm_install",
+      "description": "Install an npm package in current project. Call when user says 'npm install react', 'install lodash', 'add typescript as dev dependency'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && npm install {package}"],
+      "parameters": {
+        "package": {
+          "type": "string",
+          "description": "Package name with optional flags (e.g., 'react', 'typescript --save-dev', '@types/node')"
+        }
+      }
+    },
+    {
+      "name": "start_dev_server",
+      "description": "Start the development server (npm run dev). Call when user says 'start the dev server', 'run npm dev', 'start development'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && npm run dev &"],
+      "parameters": {}
+    },
+    {
+      "name": "run_tests",
+      "description": "Run test suite. Call when user says 'run tests', 'run the test suite', 'execute tests'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && npm test"],
+      "parameters": {}
+    },
+    {
+      "name": "git_commit",
+      "description": "Create a git commit with a message. Call when user says 'git commit with message fix bug', 'commit changes saying added feature', 'make a commit called updated docs'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && git add -A && git commit -m '{message}'"],
+      "parameters": {
+        "message": {
+          "type": "string",
+          "description": "Commit message describing the changes"
+        }
+      }
+    },
+    {
+      "name": "git_push",
+      "description": "Push commits to remote repository. Call when user says 'push to github', 'git push', 'push changes to remote'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && git push"],
+      "parameters": {}
+    },
+    {
+      "name": "open_vscode_project",
+      "description": "Open a project directory in VS Code. Call when user says 'open transcribe-rs in code', 'open vscode with myproject', 'code open ~/projects/website'",
+      "command": "code",
+      "args": ["{path}"],
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Path to project directory (can be absolute or relative, e.g., '~/code/myproject', '/home/seb/projects/website')"
+        }
+      }
+    },
+    {
+      "name": "open_terminal_on_workspace",
+      "description": "Open a terminal on a specific workspace. Call when user says 'open terminal on workspace 5', 'launch kitty on workspace 3'",
+      "command": "sh",
+      "args": ["-c", "hyprctl dispatch workspace {workspace} && kitty"],
+      "parameters": {
+        "workspace": {
+          "type": "integer",
+          "description": "Target workspace number"
+        }
+      }
+    },
+    {
+      "name": "screenshot_region",
+      "description": "Take a screenshot of a selected region. Call when user says 'take a screenshot', 'screenshot selection', 'capture region'",
+      "command": "grim",
+      "args": ["-g", "$(slurp)", "/home/seb/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"],
+      "parameters": {}
+    },
+    {
+      "name": "docker_ps",
+      "description": "List running Docker containers. Call when user says 'list docker containers', 'show running containers', 'docker ps'",
+      "command": "docker",
+      "args": ["ps"],
+      "parameters": {}
+    },
+    {
+      "name": "docker_compose_up",
+      "description": "Start Docker Compose services. Call when user says 'start docker compose', 'docker compose up', 'bring up the containers'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && docker compose up -d"],
+      "parameters": {}
+    },
+    {
+      "name": "docker_compose_down",
+      "description": "Stop Docker Compose services. Call when user says 'stop docker compose', 'bring down containers', 'docker compose down'",
+      "command": "sh",
+      "args": ["-c", "cd /home/seb/code/current-project && docker compose down"],
+      "parameters": {}
+    },
+    {
+      "name": "search_google",
+      "description": "Search Google for a query. Call when user says 'google search rust async', 'look up typescript generics', 'search for react hooks'",
+      "command": "firefox",
+      "args": ["--new-window", "https://www.google.com/search?q={query}"],
+      "parameters": {
+        "query": {
+          "type": "string",
+          "description": "Search query"
+        }
+      }
+    },
+    {
+      "name": "focus_window_class",
+      "description": "Focus a window by its class name. Call when user says 'focus firefox', 'switch to chrome', 'show me code', 'go to terminal'",
+      "command": "hyprctl",
+      "args": ["dispatch", "focuswindow", "^({window_class})"],
+      "parameters": {
+        "window_class": {
+          "type": "string",
+          "description": "Window class to focus (e.g., 'firefox', 'code', 'kitty', 'chromium')"
+        }
+      }
+    },
+    {
+      "name": "system_update",
+      "description": "Update system packages with pacman. Call when user says 'update system', 'run pacman update', 'upgrade packages'",
+      "command": "sh",
+      "args": ["-c", "kitty sudo pacman -Syu &"],
+      "parameters": {}
+    },
+    {
+      "name": "kill_process_by_name",
+      "description": "Kill a process by name. Call when user says 'kill node', 'stop firefox', 'kill all chrome processes'",
+      "command": "pkill",
+      "args": ["-f", "{process_name}"],
+      "parameters": {
+        "process_name": {
+          "type": "string",
+          "description": "Process name or pattern to kill (e.g., 'node', 'firefox', 'npm')"
+        }
+      }
+    },
+    {
+      "name": "open_file_manager",
+      "description": "Open file manager at a specific path. Call when user says 'open downloads folder', 'show me projects directory', 'file manager in home'",
+      "command": "thunar",
+      "args": ["{path}"],
+      "parameters": {
+        "path": {
+          "type": "string",
+          "description": "Directory path to open (e.g., '~/Downloads', '/home/seb/Pictures', '.')"
+        }
+      }
+    },
+    {
+      "name": "toggle_night_light",
+      "description": "Toggle Hyprland night light mode. Call when user says 'toggle night light', 'turn on blue light filter', 'enable redshift'",
+      "command": "hyprctl",
+      "args": ["dispatch", "exec", "hyprshade toggle"],
+      "parameters": {}
+    }
+  ]
+}
