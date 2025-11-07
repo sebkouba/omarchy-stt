@@ -8,11 +8,11 @@ Speech-to-text models like Parakeet and Whisper make **acoustic/phonetic errors*
 - "HiQ" → transcribed as "Hay Q" (sounds identical)
 - Your company name → transcribed incorrectly
 
-**Harper's dictionary can't fix this!** Harper only sees the already-transcribed text. Since "Tuba" is a valid English word (the instrument), Harper thinks it's correct.
+**Regular spell checkers can't fix this!** They only see the already-transcribed text. Since "Tuba" is a valid English word (the instrument), spell checkers think it's correct.
 
 ## The Solution
 
-**Transcription Corrections** run BEFORE Harper and fix acoustic errors using **fuzzy matching**.
+**Transcription Corrections** fix acoustic errors using **fuzzy matching**.
 
 ### What is Fuzzy Matching?
 
@@ -38,9 +38,8 @@ Instead of only matching exact strings like "Sebastian Tuba", fuzzy matching cat
 ```
 1. Parakeet/Whisper transcribes → "Sebastian Tuba"
 2. Transcription Corrections     → "Sebastian Kouba" ✅ (catches "Tuba", "Toba", "Tube", etc.)
-3. Harper grammar/spelling       → (no change needed)
-4. Add space after punctuation
-5. Copy and paste
+3. Add space after punctuation
+4. Copy and paste
 ```
 
 ## Configuration

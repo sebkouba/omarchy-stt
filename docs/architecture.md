@@ -49,9 +49,9 @@ The system uses **two independent daemons** that run continuously as systemd ser
 │                          │    │                          │
 │  recording-daemon        │    │  transcribe-daemon       │
 │  • 24/7 FFmpeg process   │    │  • Pre-loaded Parakeet   │
-│  • Circular RAM buffer   │    │  • Pre-loaded Harper     │
-│  • Instant start/stop    │    │  • Fast inference        │
-│  • WAV generation        │    │  • Grammar checking      │
+│  • Circular RAM buffer   │    │  • Fast inference        │
+│  • Instant start/stop    │    │  • WAV processing        │
+│  • WAV generation        │    │                          │
 │                          │    │                          │
 │  Socket:                 │    │  Socket:                 │
 │  /tmp/transcribe-rs-v2-  │    │  /tmp/transcribe-rs-v2.  │
@@ -201,15 +201,13 @@ Response:
 
 1. **Startup (3-4 seconds):**
    - Loads Parakeet ONNX model into memory
-   - Loads Harper grammar dictionary
    - Creates Unix socket and listens
 
 2. **On transcription request:**
    - Receives WAV file path via socket
    - Reads audio samples from file
    - Runs Parakeet inference (already loaded!)
-   - Applies Harper grammar corrections (already loaded!)
-   - Returns text and metrics
+   - Returns text
    - Latency: Proportional to audio length (5-30x real-time)
 
 3. **Single-Threaded Processing:**
@@ -218,18 +216,10 @@ Response:
 
 **Protocol (JSON over Unix socket):**
 
-Request (new format with Harper config):
+Request:
 ```json
 {
-  "file": "/tmp/ptt_current.wav",
-  "harper": {
-    "enabled": true,
-    "dialect": "American",
-    "user_dict_path": "/path/to/dict.txt",
-    "disabled_linters": ["Readability"],
-    "save_corrections": true,
-    "corrections_dir": "/tmp/corrections"
-  }
+  "file": "/tmp/ptt_current.wav"
 }
 ```
 
@@ -237,26 +227,14 @@ Response:
 ```json
 {
   "success": true,
-  "text": "Hello world.",
-  "processing": {
-    "transcription_ms": 1234,
-    "harper_ms": 56,
-    "corrections_applied": 2
-  }
+  "text": "Hello world."
 }
-```
-
-**Backward Compatibility:**
-Old request format (without Harper config) still supported:
-```json
-{"file": "/tmp/ptt_current.wav"}
 ```
 
 **Key Features:**
 - Model persistence across requests (why daemon exists!)
-- Harper integration eliminates 300ms dictionary loading
-- Processing metrics for performance tracking
 - Error handling with detailed messages
+- Fast inference with pre-loaded model
 
 ### 4. Transcribe Client (`transcribe-client`)
 
@@ -267,12 +245,11 @@ Old request format (without Harper config) still supported:
 
 This is a **simple wrapper program** that:
 1. Takes a WAV file path as command-line argument
-2. Loads config to get Harper settings
-3. Connects to transcribe-daemon Unix socket
-4. Sends JSON request with file path and Harper config
-5. Receives JSON response with transcribed text
-6. Prints text to stdout (for CLI to capture)
-7. Exits
+2. Connects to transcribe-daemon Unix socket
+3. Sends JSON request with file path
+4. Receives JSON response with transcribed text
+5. Prints text to stdout (for CLI to capture)
+6. Exits
 
 **Example Usage:**
 
@@ -336,11 +313,9 @@ CLI (cli.rs:470-506)
   ↓
 transcribe-client (client.rs:74-133)
   ↓
-  Load config
-  ↓
   Connect to /tmp/transcribe-rs-v2.sock
   ↓
-  Send JSON request with Harper config
+  Send JSON request with file path
   ↓
   Receive JSON response
   ↓
@@ -395,32 +370,29 @@ Time    | Component            | Action
 20ms    | recording-daemon    | Returns: {"ok": true, "wav_path": "..."}
 25ms    | CLI                 | Shows notification: "⏹️ Processing..."
 30ms    | CLI                 | Spawns: transcribe-client /tmp/ptt_current.wav
-35ms    | transcribe-client   | Loads config
-40ms    | transcribe-client   | Connects to transcribe-daemon socket
-45ms    | transcribe-client   | Sends: {"file": "...", "harper": {...}}
-50ms    | transcribe-daemon   | Reads WAV file (already loaded!)
-500ms   | transcribe-daemon   | Parakeet inference (model already loaded!)
-550ms   | transcribe-daemon   | Harper corrections (dict already loaded!)
-555ms   | transcribe-daemon   | Returns: {"success": true, "text": "Hello world."}
-560ms   | transcribe-client   | Prints to stdout, exits
-565ms   | CLI                 | Captures stdout: "Hello world."
-570ms   | CLI                 | Applies transcription corrections
-575ms   | CLI                 | Adds space after punctuation: "Hello world. "
-580ms   | CLI                 | Copies to clipboard via wl-copy
-590ms   | CLI                 | Detects active window (terminal vs GUI)
-595ms   | CLI                 | Auto-pastes via ydotool (Ctrl+V or Ctrl+Shift+V)
-600ms   | CLI                 | Shows notification: "✅ Pasted: Hello world."
-605ms   | CLI                 | Logs performance metrics
-610ms   | CLI                 | Exits
+35ms    | transcribe-client   | Connects to transcribe-daemon socket
+40ms    | transcribe-client   | Sends: {"file": "..."}
+45ms    | transcribe-daemon   | Reads WAV file
+495ms   | transcribe-daemon   | Parakeet inference (model already loaded!)
+500ms   | transcribe-daemon   | Returns: {"success": true, "text": "Hello world."}
+505ms   | transcribe-client   | Prints to stdout, exits
+510ms   | CLI                 | Captures stdout: "Hello world."
+515ms   | CLI                 | Applies transcription corrections
+520ms   | CLI                 | Adds space after punctuation: "Hello world. "
+525ms   | CLI                 | Copies to clipboard via wl-copy
+535ms   | CLI                 | Detects active window (terminal vs GUI)
+540ms   | CLI                 | Auto-pastes via ydotool (Ctrl+V or Ctrl+Shift+V)
+545ms   | CLI                 | Shows notification: "✅ Pasted: Hello world."
+550ms   | CLI                 | Logs performance metrics
+555ms   | CLI                 | Exits
 --------|---------------------|----------------------------------------
-Total: ~610ms (for ~500ms of inference)
+Total: ~555ms (for ~450ms of inference)
 ```
 
 **Performance Breakdown:**
 - Recording overhead: 20ms
 - Daemon communication: 30ms
 - Parakeet inference: 450ms (depends on audio length)
-- Harper corrections: 50ms (no dictionary loading!)
 - Post-processing: 25ms
 - Clipboard + paste: 15ms
 
@@ -460,7 +432,6 @@ Total: ~610ms (for ~500ms of inference)
 **Persistent Files:**
 - `~/.config/transcribe-rs/config.toml` - User configuration
 - `models/parakeet-tdt-0.6b-v3-int8/` - AI model files (ONNX)
-- `~/.config/transcribe-rs/corrections/` - Harper correction logs
 
 ---
 
@@ -474,10 +445,9 @@ Total: ~610ms (for ~500ms of inference)
 | Recording stop               | 5-15ms       | Buffer extraction + WAV write     |
 | Daemon connection            | 1-5ms        | Unix socket                       |
 | Parakeet inference           | 5-30x RT     | Hardware dependent                |
-| Harper corrections           | 50-100ms     | Dictionary already loaded         |
 | Clipboard copy               | 5-10ms       | wl-copy subprocess                |
 | Auto-paste                   | 10-20ms      | ydotool key simulation            |
-| **Total (3s audio)**         | **~800ms**   | Without daemons: **~4800ms**      |
+| **Total (3s audio)**         | **~750ms**   | Without daemons: **~4500ms**      |
 
 **RT = Real-time** (3 seconds of audio = 150-900ms inference)
 
@@ -486,10 +456,10 @@ Total: ~610ms (for ~500ms of inference)
 | Component            | RAM Usage    | Notes                              |
 |----------------------|--------------|-----------------------------------|
 | recording-daemon     | ~10 MB       | Includes 3.7 MB circular buffer   |
-| transcribe-daemon    | ~300 MB      | Parakeet + Harper in memory       |
+| transcribe-daemon    | ~250 MB      | Parakeet model in memory          |
 | transcribe (CLI)     | ~5 MB        | Short-lived, exits after paste    |
 | transcribe-client    | ~3 MB        | Short-lived, exits after response |
-| **Total**            | **~310 MB**  | Continuous overhead               |
+| **Total**            | **~260 MB**  | Continuous overhead               |
 
 ### CPU Usage
 
@@ -524,11 +494,6 @@ socket_path = "/tmp/transcribe-rs-v2.sock"
 [recording_daemon]
 socket_path = "/tmp/transcribe-rs-v2-recording.sock"
 buffer_seconds = 120
-
-[harper]
-enabled = true
-dialect = "American"
-dictionary_path = ""  # Empty = use defaults
 
 [integration]
 auto_paste = true

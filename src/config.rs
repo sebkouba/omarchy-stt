@@ -15,8 +15,6 @@ pub struct Config {
     #[serde(default)]
     pub transcription_corrections: TranscriptionCorrectionsConfig,
     #[serde(default)]
-    pub harper: HarperConfig,
-    #[serde(default)]
     pub dictation_logging: DictationLoggingConfig,
 }
 
@@ -67,26 +65,10 @@ pub struct IntegrationConfig {
 /// Transcription error corrections (phonetic/acoustic fixes)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionCorrectionsConfig {
-    /// Enable transcription corrections (runs before Harper)
+    /// Enable transcription corrections
     pub enabled: bool,
     /// Path to corrections file (JSON with from/to rules)
     pub corrections_file: String,
-}
-
-/// Harper grammar/spell checking configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HarperConfig {
-    /// Enable Harper post-processing
-    pub enabled: bool,
-    /// Path to user dictionary file
-    pub dictionary_path: String,
-    /// Dialect: "American", "British", "Australian", or "Canadian"
-    pub dialect: String,
-    /// Directory where correction sessions are saved
-    pub corrections_dir: String,
-    /// List of linter names to disable
-    #[serde(default)]
-    pub disabled_linters: Vec<String>,
 }
 
 /// Dictation logging configuration
@@ -112,7 +94,6 @@ impl Default for Config {
             daemon: DaemonConfig::default(),
             integration: IntegrationConfig::default(),
             transcription_corrections: TranscriptionCorrectionsConfig::default(),
-            harper: HarperConfig::default(),
             dictation_logging: DictationLoggingConfig::default(),
         }
     }
@@ -181,28 +162,6 @@ impl Default for TranscriptionCorrectionsConfig {
             corrections_file: config_dir.join("transcription_corrections.json")
                 .to_string_lossy()
                 .to_string(),
-        }
-    }
-}
-
-impl Default for HarperConfig {
-    fn default() -> Self {
-        let config_dir = dirs::config_dir()
-            .map(|d| d.join("transcribe-rs"))
-            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
-
-        HarperConfig {
-            enabled: true,
-            dictionary_path: config_dir.join("harper_dictionary.txt")
-                .to_string_lossy()
-                .to_string(),
-            dialect: "American".to_string(),
-            corrections_dir: config_dir.join("harper_corrections")
-                .to_string_lossy()
-                .to_string(),
-            disabled_linters: vec![
-                "AvoidCurses".to_string(),  // No censorship of swear words
-            ],
         }
     }
 }

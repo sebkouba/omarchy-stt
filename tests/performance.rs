@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use transcribe_rs::{clipboard, config::Config, harper_processor::Dialect, transcription_corrections::TranscriptionCorrector};
+use transcribe_rs::{clipboard, config::Config, transcription_corrections::TranscriptionCorrector};
 
 /// Performance test that simulates the full transcription pipeline
 /// Tests the path from audio file to clipboard (excluding the actual paste operation)
@@ -19,7 +19,6 @@ fn test_transcription_pipeline_performance() {
                 println!("  Total time: {:.0}ms", metrics.total_ms);
                 println!("    - Transcription: {:.0}ms", metrics.transcription_ms);
                 println!("    - Corrections:   {:.0}ms", metrics.corrections_ms);
-                println!("    - Harper:        {:.0}ms", metrics.harper_ms);
                 println!("    - Clipboard:     {:.0}ms", metrics.clipboard_ms);
                 println!("  Text length: {} chars", metrics.text_length);
                 println!("  Final text: {}\n", metrics.final_text);
@@ -37,7 +36,6 @@ struct PipelineMetrics {
     total_ms: f64,
     transcription_ms: f64,
     corrections_ms: f64,
-    harper_ms: f64,
     clipboard_ms: f64,
     text_length: usize,
     final_text: String,
@@ -71,39 +69,14 @@ fn measure_pipeline_performance(audio_file: &str) -> Result<PipelineMetrics, Box
     };
     let corrections_ms = start_corrections.elapsed().as_secs_f64() * 1000.0;
 
-    // 3. Process with Harper
-    let start_harper = Instant::now();
-    let processed_text = if config.harper.enabled {
-        let dict_path = PathBuf::from(&config.harper.dictionary_path);
-        let dialect = match config.harper.dialect.as_str() {
-            "British" => Dialect::British,
-            "Australian" => Dialect::Australian,
-            "Canadian" => Dialect::Canadian,
-            _ => Dialect::American,
-        };
-
-        match transcribe_rs::harper_processor::process_with_harper(
-            &corrected_transcription,
-            &dict_path,
-            dialect,
-            &config.harper.disabled_linters,
-        ) {
-            Ok(session) => session.corrected_text.clone(),
-            Err(_) => corrected_transcription.clone(),
-        }
-    } else {
-        corrected_transcription.clone()
-    };
-    let harper_ms = start_harper.elapsed().as_secs_f64() * 1000.0;
-
-    // 4. Add trailing space after punctuation
+    // 3. Add trailing space after punctuation
     let text = if config.integration.add_space_after_punctuation {
-        clipboard::add_trailing_space_after_punctuation(&processed_text)
+        clipboard::add_trailing_space_after_punctuation(&corrected_transcription)
     } else {
-        processed_text
+        corrected_transcription
     };
 
-    // 5. Skip actual clipboard copy in test (wl-copy hangs in test environment)
+    // 4. Skip actual clipboard copy in test (wl-copy hangs in test environment)
     // In real usage this takes ~20-30ms but wl-copy stays alive serving the clipboard
     let clipboard_ms = 0.0;
 
@@ -113,7 +86,6 @@ fn measure_pipeline_performance(audio_file: &str) -> Result<PipelineMetrics, Box
         total_ms,
         transcription_ms,
         corrections_ms,
-        harper_ms,
         clipboard_ms,
         text_length: text.len(),
         final_text: text,

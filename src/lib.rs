@@ -59,7 +59,6 @@ pub mod clipboard;
 pub mod config;
 pub mod dictation_logger;
 pub mod groq;
-pub mod harper_processor;
 pub mod notifications;
 pub mod paste;
 pub mod performance_log;
