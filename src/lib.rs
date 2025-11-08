@@ -68,6 +68,7 @@ pub mod terminal_detect;
 pub mod timing;
 pub mod tools;
 pub mod transcription_corrections;
+pub mod wake_word;
 
 use std::path::Path;
 

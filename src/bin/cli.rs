@@ -3,7 +3,8 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use transcribe_rs::{clipboard, config::Config, dictation_logger, notifications, paste, performance_log, recording, timing};
+use std::sync::{Arc, Mutex};
+use transcribe_rs::{clipboard, config::Config, dictation_logger, notifications, paste, performance_log, recording, timing, wake_word};
 
 /// Append a log message to the debug log
 fn log(message: &str, log_file: &str) {
@@ -37,6 +38,18 @@ enum Commands {
     },
     /// Stop recording and transcribe
     Stop,
+    /// Listen for wake word to trigger dictation (hands-free mode)
+    Listen {
+        /// Wake word to detect (default: "alexa")
+        #[arg(short, long, default_value = "alexa")]
+        wake_word: String,
+        /// Detection threshold (0.0-1.0, default: 0.5)
+        #[arg(short, long, default_value_t = 0.5)]
+        threshold: f32,
+        /// Optional prompt name for LLM post-processing (e.g., "clean", "email")
+        #[arg(short, long)]
+        prompt: Option<String>,
+    },
     /// Configuration management
     Config {
         #[command(subcommand)]
@@ -74,6 +87,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         Commands::Stop => {
             let config = Config::load()?;
             handle_stop(&config)
+        }
+        Commands::Listen { wake_word, threshold, prompt } => {
+            let config = Config::load()?;
+            handle_listen(&config, &wake_word, threshold, prompt)
         }
         Commands::Config { config_cmd } => handle_config(config_cmd),
         Commands::Doctor => handle_doctor(),
@@ -621,4 +638,87 @@ fn transcribe_file(file: &PathBuf, log_file: &str) -> Result<String, Box<dyn Err
     let text = String::from_utf8(output.stdout)?;
     log(&format!("transcribe-client stdout: '{}'", text), log_file);
     Ok(text.trim().to_string())
+}
+
+/// Handle wake word listening mode (hands-free dictation)
+fn handle_listen(config: &Config, wake_word: &str, threshold: f32, prompt: Option<String>) -> Result<(), Box<dyn Error>> {
+    log(&format!("=== HANDLE LISTEN (wake_word: {}, threshold: {}) ===", wake_word, threshold), &config.audio.log_file);
+
+    println!("👂 Starting wake word listener...");
+    println!("   Wake word: '{}'", wake_word);
+    println!("   Threshold: {:.2}", threshold);
+    println!("   Say the wake word to start/stop dictation");
+    println!("   Press Ctrl+C to exit\n");
+
+    // Create wake word detector
+    let ww_config = wake_word::WakeWordConfig {
+        model_path: PathBuf::from("models/wake_words"),
+        wake_word: wake_word.to_string(),
+        threshold,
+        sample_rate: 16000,
+    };
+
+    let mut detector = wake_word::WakeWordDetector::new(ww_config)?;
+    log("Wake word detector initialized", &config.audio.log_file);
+
+    // State machine: Monitoring -> Recording -> Processing -> Monitoring
+    #[derive(Debug, PartialEq, Clone)]
+    enum State {
+        Monitoring,
+        Recording,
+    }
+
+    let state = Arc::new(Mutex::new(State::Monitoring));
+    let state_clone = state.clone();
+    let config_clone = config.clone();
+    let prompt_clone = prompt.clone();
+
+    // Set up Ctrl+C handler
+    let running = Arc::new(Mutex::new(true));
+    let running_clone = running.clone();
+    ctrlc::set_handler(move || {
+        println!("\n\n🛑 Shutting down wake word listener...");
+        *running_clone.lock().unwrap() = false;
+        std::process::exit(0);
+    })?;
+
+    // Start detection with callback
+    detector.start_listening(move |detected_word| {
+        let mut current_state = state_clone.lock().unwrap();
+        let log_file = &config_clone.audio.log_file;
+
+        log(&format!("Wake word '{}' detected in state: {:?}", detected_word, *current_state), log_file);
+
+        match *current_state {
+            State::Monitoring => {
+                // Start recording
+                log("State transition: Monitoring -> Recording", log_file);
+                println!("\n🎤 Wake word detected! Starting recording...");
+
+                if let Err(e) = handle_start(&config_clone, prompt_clone.clone()) {
+                    eprintln!("Failed to start recording: {}", e);
+                    log(&format!("ERROR: Failed to start recording: {}", e), log_file);
+                } else {
+                    *current_state = State::Recording;
+                    println!("   (Say wake word again to stop)\n");
+                }
+            }
+            State::Recording => {
+                // Stop recording and process
+                log("State transition: Recording -> Processing", log_file);
+                println!("\n⏹️  Wake word detected! Stopping recording...");
+
+                if let Err(e) = handle_stop(&config_clone) {
+                    eprintln!("Failed to stop and process recording: {}", e);
+                    log(&format!("ERROR: Failed to stop recording: {}", e), log_file);
+                }
+
+                *current_state = State::Monitoring;
+                log("State transition: Processing -> Monitoring", log_file);
+                println!("\n👂 Listening for wake word...\n");
+            }
+        }
+    })?;
+
+    Ok(())
 }
