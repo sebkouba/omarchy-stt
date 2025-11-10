@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**transcribe-rs-v2** is a Rust-based push-to-talk dictation system for Linux/Wayland with three architectural layers:
+**transcribe-rs-v2** is a Rust-based push-to-talk dictation system for Linux/Wayland with four architectural layers:
 
 1. **Core Library** (`src/lib.rs`, `src/engines/`, `src/audio.rs`) - Reusable transcription API with trait-based engine abstraction
-2. **Push-to-Talk CLI** (`src/bin/cli.rs` + support modules) - Desktop integration for voice dictation
-3. **Daemon/Client** (`src/bin/daemon.rs`, `src/bin/client.rs`) - Long-running service for fast repeated transcriptions
+2. **Recording Daemon** (`src/bin/recording-daemon.rs`) - Continuous audio capture to circular buffer for zero-latency recording
+3. **Transcription Daemon/Client** (`src/bin/daemon.rs`, `src/bin/client.rs`) - Long-running service with model loaded for fast transcription
+4. **Push-to-Talk CLI** (`src/bin/cli.rs` + support modules) - Desktop integration orchestrating recording, transcription, corrections, and pasting
 
-This is a v2 fork of the original project at `/home/seb/code/cloned/transcribe-rs`. The socket path is `/tmp/transcribe-rs-v2.sock` (different from original) to allow simultaneous operation.
+This is a v2 fork of the original project at `/home/seb/code/cloned/transcribe-rs`. Uses separate socket paths (`/tmp/transcribe-rs-v2.sock` for transcription, `/tmp/transcribe-rs-v2-recording.sock` for recording) to allow simultaneous operation.
 
 ## High-Level Architecture
 
@@ -28,17 +29,25 @@ This abstraction allows the CLI and daemon to work with any engine through the s
 ```
 User Press Hotkey → transcribe start
     ↓
-recording::start_recording() spawns ffmpeg (PID saved to /tmp/ptt_recording.pid)
+recording::start_recording() connects to recording-daemon socket
     ↓
-Records to /tmp/ptt_current.wav (16kHz mono WAV)
+Daemon returns current buffer index (start_index saved to /tmp/ptt_recording.pid)
+    ↓
+Recording daemon continuously writes to circular buffer (always recording)
     ↓
 User Release Hotkey → transcribe stop
     ↓
-recording::stop_recording() sends SIGINT to ffmpeg, validates file
+recording::stop_recording() sends stop + start_index to daemon
+    ↓
+Daemon extracts samples from circular buffer, writes /tmp/ptt_current.wav (~5-10ms)
     ↓
 Calls transcribe-client via Unix socket (/tmp/transcribe-rs-v2.sock)
     ↓
-Daemon (with Parakeet loaded) transcribes and returns text
+Transcription daemon (with Parakeet loaded) transcribes and returns text
+    ↓
+transcription_corrections::apply_corrections() fixes common errors via fuzzy matching
+    ↓
+Optional: groq::process_with_llm() for LLM post-processing (grammar, formatting, tools)
     ↓
 clipboard::add_trailing_space_after_punctuation() adds space after . ! ?
     ↓
@@ -47,13 +56,23 @@ clipboard::copy_to_clipboard() uses wl-copy subprocess
 paste::paste_from_clipboard() uses ydotool to simulate Ctrl+V or Ctrl+Shift+V
     ↓
 Text appears in active window
+    ↓
+Optional: dictation_logger::log() records to CSV for analysis
 ```
 
 ### Daemon Architecture
 
-The daemon eliminates 3-4 second model load time by keeping the Parakeet model in memory:
+**Recording Daemon** (`recording-daemon`):
+- Continuously records from microphone to circular buffer in RAM
+- Buffer size: 2 minutes @ 16kHz mono (~3.7 MB)
+- Listens on `/tmp/transcribe-rs-v2-recording.sock`
+- Commands: `start` (returns index), `stop` (extracts audio from index to now)
+- Zero-latency recording start, ~5-10ms extraction time
+- Handles FFmpeg subprocess for audio input
 
-- Loads model at startup
+**Transcription Daemon** (`transcribe-daemon`):
+- Eliminates 3-4 second model load time by keeping Parakeet in memory
+- Loads model at startup from config path
 - Listens on Unix socket `/tmp/transcribe-rs-v2.sock`
 - Simple line-delimited JSON protocol (request: `{"audio_file": "/path/to/file.wav"}`, response: `{"text": "..."}`)
 - Single-threaded request processing (sufficient for personal use)
@@ -73,10 +92,12 @@ The daemon eliminates 3-4 second model load time by keeping the Parakeet model i
 - Simulates key codes: 29=Ctrl, 42=Shift, 47=V
 - Currently Hyprland-specific: uses `hyprctl activewindow -j` to detect terminals and choose Ctrl+Shift+V vs Ctrl+V
 
-**ffmpeg subprocess for recording:**
-- FFmpeg handles all audio driver complexity and hardware quirks
-- Cross-platform, format conversion, battle-tested
-- SIGINT ensures graceful shutdown for valid WAV files
+**Recording daemon + circular buffer instead of on-demand FFmpeg:**
+- Eliminates 100-300ms FFmpeg startup latency
+- Zero-latency recording start (already recording to buffer)
+- ~5-10ms extraction time (just write buffer slice to WAV)
+- FFmpeg still used internally by daemon for audio input
+- Trade-off: Additional daemon process but near-instant UX
 
 ### Audio Processing Requirements
 
@@ -86,13 +107,56 @@ Strict format enforcement in `audio::read_wav_samples()`:
 - Bit Depth: 16-bit PCM
 - Format: WAV
 
-**Hardcoded microphone source** in `recording.rs`: `alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo`
+**Microphone source** configured via environment variable `RECORDING_MICROPHONE` in `recording-daemon` systemd service (defaults to hardcoded value if not set).
+
+### Transcription Corrections System
+
+**Fuzzy pattern matching** (`src/transcription_corrections.rs`):
+- Fixes common ASR errors using configurable JSON rules
+- Supports two algorithms: Jaro-Winkler (names/prefixes) and Levenshtein (general text)
+- Default similarity threshold: 85%
+- Case-sensitive/insensitive matching
+- Example: "see plus plus" → "C++" with high confidence matching
+
+**Configuration** (`~/.config/transcribe-rs/transcription_corrections.json`):
+```json
+{
+  "rules": [
+    {
+      "from": "see plus plus",
+      "to": "C++",
+      "case_sensitive": false,
+      "fuzzy_matching": true,
+      "similarity_threshold": 0.85,
+      "algorithm": "Levenshtein"
+    }
+  ]
+}
+```
+
+### LLM Post-Processing
+
+**Groq API integration** (`src/groq.rs`):
+- Optional LLM-based grammar correction and formatting
+- Tool calling support for executing commands during dictation
+- Model: `moonshotai/kimi-k2-instruct-0905`
+- Tools loaded from `~/.config/transcribe-rs/tools.json`
+- Iterative execution (up to 5 tool calls per request)
+- Use case: "Send this email to John" can trigger email tool
 
 ### Punctuation Intelligence
 
 `clipboard::add_trailing_space_after_punctuation()` adds space after `.`, `!`, `?` for natural consecutive dictations:
 - "Hello world." → paste → "Another sentence." flows naturally
 - No space after commas or other punctuation
+
+### Dictation Logging
+
+**Privacy-conscious logging** (`src/dictation_logger.rs`):
+- Disabled by default (opt-in via config)
+- Two separate CSV logs: basic transcriptions, LLM corrections
+- Tracks: timestamp, raw text, corrected text, duration, context
+- Use case: Analyze correction patterns, model accuracy
 
 ## Common Development Commands
 
@@ -102,11 +166,12 @@ After completing any implementation changes, ALWAYS run `cargo build --release` 
 ### Building
 
 ```bash
-# Build all binaries (transcribe, transcribe-daemon, transcribe-client)
+# Build all binaries (transcribe, transcribe-daemon, transcribe-client, recording-daemon)
 cargo build --release
 
 # Build specific binary
 cargo build --release --bin transcribe-daemon
+cargo build --release --bin recording-daemon
 
 # Check without building
 cargo check
@@ -142,12 +207,15 @@ cargo run --example transcribe-file
 ### Running and Debugging
 
 ```bash
-# Start daemon
-./target/release/transcribe-daemon
+# Start both daemons
+RECORDING_MICROPHONE="your-device" ./target/release/recording-daemon &
+./target/release/transcribe-daemon &
 
 # Or via systemd
-systemctl --user start transcribe-daemon
+systemctl --user start recording-daemon transcribe-daemon
+systemctl --user status recording-daemon
 systemctl --user status transcribe-daemon
+journalctl --user -u recording-daemon -f
 journalctl --user -u transcribe-daemon -f
 
 # Manual push-to-talk test
@@ -184,16 +252,19 @@ sudo pacman -S wl-clipboard ydotool ffmpeg
    cd ..
    ```
 
-3. Install systemd service:
+3. Create config: `./target/release/transcribe config init`
+
+4. Install systemd services:
    ```bash
-   # Edit transcribe-daemon.service to match your paths
-   cp transcribe-daemon.service ~/.config/systemd/user/
+   # Create recording-daemon.service (set RECORDING_MICROPHONE)
+   # Create transcribe-daemon.service (set WorkingDirectory)
+   # Copy both to ~/.config/systemd/user/
    systemctl --user daemon-reload
-   systemctl --user enable transcribe-daemon
-   systemctl --user start transcribe-daemon
+   systemctl --user enable recording-daemon transcribe-daemon
+   systemctl --user start recording-daemon transcribe-daemon
    ```
 
-4. Configure Hyprland keybindings in `~/.config/hypr/hyprland.conf`:
+5. Configure Hyprland keybindings in `~/.config/hypr/hyprland.conf`:
    ```ini
    bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe start
    bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe stop
@@ -203,13 +274,21 @@ sudo pacman -S wl-clipboard ydotool ffmpeg
 
 **Temporary files:**
 - `/tmp/ptt_current.wav` - Current/last recording
-- `/tmp/ptt_recording.pid` - Recording process PID
+- `/tmp/ptt_recording.pid` - Recording start index (repurposed from PID file)
 - `/tmp/ptt_rust_debug.log` - Debug log with timestamps
-- `/tmp/transcribe-rs-v2.sock` - Daemon Unix socket
+- `/tmp/transcribe-rs-v2.sock` - Transcription daemon Unix socket
+- `/tmp/transcribe-rs-v2-recording.sock` - Recording daemon Unix socket
 
 **Model files:**
 - `models/parakeet-tdt-0.6b-v3-int8/` - Parakeet model (default)
 - `models/whisper-medium-q4_1.bin` - Whisper model (alternative)
+
+**Configuration files:**
+- `~/.config/transcribe-rs/config.toml` - Main configuration
+- `~/.config/transcribe-rs/transcription_corrections.json` - Correction rules
+- `~/.config/transcribe-rs/tools.json` - LLM tool definitions (optional)
+- `~/.config/transcribe-rs/dictation_log.csv` - Basic dictation log (if enabled)
+- `~/.config/transcribe-rs/llm_corrections_log.csv` - LLM corrections log (if enabled)
 
 ### Monitoring and Debugging
 
@@ -222,9 +301,12 @@ All modules log to `/tmp/ptt_rust_debug.log` with timestamps and module tags:
 ```
 
 **Desktop notifications:**
-- "🎤 Recording" - Recording started
+- "🎤 Recording" - Recording started (marked in buffer)
 - "⏹️ Processing..." - Recording stopped, transcribing
-- "✅ Pasted: [preview]" - Success
+- "✅ Pasted: [preview]" - Success (shows final corrected text)
+- "🔧 Corrections applied: N" - Corrections made to transcription
+- "🤖 LLM: [preview]" - LLM post-processing applied
+- "🛠️ Tool: [name]" - Tool executed by LLM
 - "❌ Error: [message]" - Errors
 
 ## Important Patterns and Conventions
@@ -233,25 +315,36 @@ All modules log to `/tmp/ptt_rust_debug.log` with timestamps and module tags:
 
 ```
 src/
-├── lib.rs                    # Core types, TranscriptionEngine trait
-├── audio.rs                  # WAV reading, format validation
+├── lib.rs                          # Core types, TranscriptionEngine trait
+├── audio.rs                        # WAV reading, format validation
+├── config.rs                       # TOML configuration management
 ├── engines/
-│   ├── whisper.rs           # Whisper engine
+│   ├── whisper.rs                 # Whisper engine
 │   └── parakeet/
-│       ├── engine.rs        # Parakeet implementation
-│       ├── model.rs         # ONNX model management
-│       └── timestamps.rs    # Timestamp processing
-├── remote/openai.rs         # OpenAI API (async)
+│       ├── engine.rs              # Parakeet implementation
+│       ├── model.rs               # ONNX model management
+│       └── timestamps.rs          # Timestamp processing
+├── remote/
+│   └── openai.rs                  # OpenAI API (async)
+├── groq.rs                        # Groq LLM client with tool calling
+├── transcription_corrections.rs   # Fuzzy pattern matching corrections
+├── tools.rs                       # Tool loading and execution for LLM
+├── dictation_logger.rs            # CSV logging for dictations
+├── circular_buffer.rs             # Ring buffer for continuous recording
+├── performance_log.rs             # Performance timing utilities
+├── timing.rs                      # Timing helpers
+├── prompts.rs                     # LLM system prompts
 ├── bin/
-│   ├── cli.rs               # Main CLI (transcribe command)
-│   ├── daemon.rs            # Daemon (transcribe-daemon)
-│   └── client.rs            # Client (transcribe-client)
+│   ├── cli.rs                    # Main CLI (transcribe command)
+│   ├── daemon.rs                 # Transcription daemon
+│   ├── client.rs                 # Transcription client
+│   └── recording-daemon.rs       # Recording daemon with circular buffer
 └── [CLI support modules]
-    ├── clipboard.rs         # wl-copy integration
-    ├── paste.rs             # ydotool integration
-    ├── recording.rs         # ffmpeg management
-    ├── terminal_detect.rs   # Hyprland window detection
-    └── notifications.rs     # Desktop notifications
+    ├── clipboard.rs              # wl-copy integration
+    ├── paste.rs                  # ydotool integration
+    ├── recording.rs              # Recording daemon client
+    ├── terminal_detect.rs        # Hyprland window detection
+    └── notifications.rs          # Desktop notifications
 ```
 
 ### Error Handling and Logging
@@ -277,7 +370,8 @@ src/
 
 - `whisper-rs` features: `metal` (macOS), `vulkan` (Linux/Windows) - conditionally compiled
 - Terminal detection: Hyprland-specific via `hyprctl activewindow -j` (see `terminal_detect.rs`)
-- Microphone source: Hardcoded in `recording.rs` for specific hardware
+- Microphone source: Environment variable `RECORDING_MICROPHONE` in recording-daemon (defaults to hardcoded value)
+- Circular buffer: Lock-free atomic operations for thread-safe concurrent access
 
 ## Key Dependencies
 
@@ -285,7 +379,15 @@ src/
 - `ort` - ONNX Runtime for Parakeet
 - `whisper-rs` - Whisper.cpp bindings (with Metal/Vulkan features)
 - `async-openai` - OpenAI API client
+- `reqwest` - HTTP client for Groq API
+- `ureq` - Lightweight HTTP for tool execution
 - `clap` 4.5 - CLI argument parsing (derive API)
 - `notify-rust` - Desktop notifications
 - `nix` - Unix signal handling (SIGINT, SIGKILL)
-- `serde`/`serde_json` - Daemon protocol serialization
+- `serde`/`serde_json` - Configuration and protocol serialization
+- `toml` - Config file parsing
+- `chrono` - Timestamp formatting for logs
+- `rapidfuzz` - Fuzzy string matching (Jaro-Winkler, Levenshtein)
+- `similar` - Text diffing for logging corrections
+- `ctrlc` - Signal handling for daemon graceful shutdown
+- `dirs` - Cross-platform config directory location

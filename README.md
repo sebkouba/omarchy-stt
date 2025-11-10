@@ -8,12 +8,14 @@ Press a hotkey, speak, release, and your text appears instantly in the active wi
 
 ## Features
 
-- 🎤 **Push-to-Talk Recording** - Hold a hotkey to record, release to transcribe
-- ⚡ **Sub-second Latency** - Daemon keeps model loaded for instant transcription (3-4s cold start eliminated)
-- 🔒 **100% Local** - All processing on your machine, no cloud APIs
+- 🎤 **Zero-Latency Recording** - Continuous circular buffer eliminates FFmpeg startup time
+- ⚡ **Sub-10ms Extraction** - Recording daemon extracts audio instantly from RAM buffer
+- 🔒 **100% Local** - All processing on your machine, no cloud APIs (with optional LLM post-processing)
 - 📋 **Auto-Paste** - Transcription automatically typed into active window
 - 🖥️ **Smart Terminal Detection** - Uses Ctrl+Shift+V in terminals, Ctrl+V elsewhere
 - 🎯 **Accurate** - Powered by Parakeet (NVIDIA NeMo) or Whisper models
+- 🔧 **Transcription Corrections** - Fuzzy pattern matching for fixing common errors
+- 🤖 **LLM Post-Processing** - Optional Groq API integration with tool calling support
 - ⚙️ **Configurable** - TOML config for microphone, model, behavior
 
 ## Demo
@@ -27,7 +29,12 @@ System: [Records → Transcribes → Pastes "Hello world, this is a test."]
 
 ## Performance
 
-Using int8 quantized Parakeet model:
+**Recording Latency:**
+- Recording start: **0ms** (already recording to circular buffer)
+- Recording stop: **~5-10ms** (extract from RAM + write WAV)
+- Buffer memory: ~3.7 MB for 2-minute buffer
+
+**Transcription Speed (using int8 quantized Parakeet):**
 - **30x real-time** on M4 Max
 - **20x real-time** on Ryzen 5700X
 - **5x real-time** on Intel i5-6500
@@ -106,6 +113,7 @@ Binaries created:
 - `target/release/transcribe` - Main CLI (start/stop recording)
 - `target/release/transcribe-daemon` - Long-running transcription service
 - `target/release/transcribe-client` - Direct daemon client
+- `target/release/recording-daemon` - Continuous recording daemon (circular buffer)
 
 #### 2. Download the Model
 
@@ -127,17 +135,12 @@ This creates `~/.config/transcribe-rs/config.toml` with defaults.
 
 #### 4. Configure Your Microphone
 
-List available microphones:
+The recording daemon uses environment variables. List available microphones:
 ```bash
 pactl list sources short
 ```
 
-Edit config if needed:
-```bash
-nano ~/.config/transcribe-rs/config.toml
-```
-
-Change `microphone = "default"` to your specific device if needed.
+Set your microphone in the systemd service file (see Usage section below).
 
 </details>
 
@@ -153,8 +156,7 @@ Change `microphone = "default"` to your specific device if needed.
 
 ```toml
 [audio]
-# Microphone source (see "Finding Your Microphone" below)
-microphone = "default"
+# Microphone is configured via recording-daemon service (see systemd file)
 sample_rate = 16000
 recording_path = "/tmp/ptt_current.wav"
 recording_pid_file = "/tmp/ptt_recording.pid"
@@ -184,7 +186,21 @@ terminal_apps = [
     "terminal",
     "konsole",
     "xterm",
+    "code",
 ]
+
+[transcription_corrections]
+# Enable fuzzy pattern matching for fixing common transcription errors
+enabled = true
+corrections_file = "~/.config/transcribe-rs/transcription_corrections.json"
+
+[dictation_logging]
+# Optional CSV logging of dictations (disabled by default for privacy)
+enabled = false
+basic_log_enabled = true
+llm_log_enabled = true
+basic_log_path = "~/.config/transcribe-rs/dictation_log.csv"
+llm_log_path = "~/.config/transcribe-rs/llm_corrections_log.csv"
 ```
 
 ### Finding Your Microphone
@@ -201,7 +217,7 @@ Output example:
 2  alsa_input.usb-Logitech_Webcam_C922-02.analog-stereo ...
 ```
 
-Use the full name (e.g., `alsa_input.usb-Logitech_Webcam_C922-02.analog-stereo`) or device index (`2`), or keep `"default"` to use system default.
+Set the `RECORDING_MICROPHONE` environment variable in the recording-daemon systemd service to your device name.
 
 ### Config Commands
 
@@ -220,26 +236,49 @@ transcribe config init
 
 ## Usage
 
-### 1. Start the Daemon
+### 1. Start the Daemons
 
-The daemon keeps the model loaded in memory for instant transcription.
+You need **two** daemons running:
+1. **Recording daemon** - Continuous audio capture to circular buffer
+2. **Transcription daemon** - Model kept loaded for instant transcription
 
 **Option A: Run manually (for testing)**
 ```bash
+# Terminal 1: Recording daemon
+RECORDING_MICROPHONE="your-device-name" ./target/release/recording-daemon
+
+# Terminal 2: Transcription daemon
 ./target/release/transcribe-daemon
 ```
 
-**Option B: Systemd service (recommended)**
+**Option B: Systemd services (recommended)**
+
+Create `~/.config/systemd/user/recording-daemon.service`:
+```ini
+[Unit]
+Description=Transcribe-RS Recording Daemon
+After=sound.target
+
+[Service]
+Type=simple
+Environment="RECORDING_MICROPHONE=alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo"
+Environment="RECORDING_BUFFER_SIZE=120"
+ExecStart=/home/YOUR_USERNAME/code/transcribe-rs-v2/target/release/recording-daemon
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
 
 Create `~/.config/systemd/user/transcribe-daemon.service`:
 ```ini
 [Unit]
-Description=Transcribe-RS Daemon
+Description=Transcribe-RS Transcription Daemon
 After=network.target
 
 [Service]
 Type=simple
-# IMPORTANT: Set this to your project directory
 WorkingDirectory=/home/YOUR_USERNAME/code/transcribe-rs-v2
 ExecStart=/home/YOUR_USERNAME/code/transcribe-rs-v2/target/release/transcribe-daemon
 Restart=on-failure
@@ -248,16 +287,18 @@ Restart=on-failure
 WantedBy=default.target
 ```
 
-Enable and start:
+Enable and start both:
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable transcribe-daemon
-systemctl --user start transcribe-daemon
+systemctl --user enable recording-daemon transcribe-daemon
+systemctl --user start recording-daemon transcribe-daemon
 
 # Check status
+systemctl --user status recording-daemon
 systemctl --user status transcribe-daemon
 
 # View logs
+journalctl --user -u recording-daemon -f
 journalctl --user -u transcribe-daemon -f
 ```
 
@@ -300,20 +341,31 @@ transcribe doctor
 
 ### Common Issues
 
-#### "Failed to connect to transcribe daemon"
-- **Solution:** Start the daemon: `transcribe-daemon` or `systemctl --user start transcribe-daemon`
-- Check daemon status: `systemctl --user status transcribe-daemon`
+#### "Failed to connect to transcribe daemon" or "Failed to connect to recording daemon"
+- **Solution:** Start both daemons:
+  ```bash
+  systemctl --user start recording-daemon
+  systemctl --user start transcribe-daemon
+  ```
+- Check daemon status:
+  ```bash
+  systemctl --user status recording-daemon
+  systemctl --user status transcribe-daemon
+  ```
 
-#### "ffmpeg failed to start" or "Recording file too small"
+#### Recording daemon crashes or restarts frequently
 - **Cause:** Microphone not found or in use
 - **Solution:**
   ```bash
   # List microphones
   pactl list sources short
 
-  # Update config
-  nano ~/.config/transcribe-rs/config.toml
-  # Set: microphone = "YOUR_DEVICE_NAME"
+  # Update recording-daemon.service
+  nano ~/.config/systemd/user/recording-daemon.service
+  # Set: Environment="RECORDING_MICROPHONE=YOUR_DEVICE_NAME"
+
+  systemctl --user daemon-reload
+  systemctl --user restart recording-daemon
   ```
 
 #### "Model not found"
