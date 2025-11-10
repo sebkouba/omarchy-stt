@@ -97,17 +97,6 @@ detect_terminal() {
     fi
 }
 
-# Switch workspace if specified (Hyprland)
-if [ -n "$WORKSPACE" ]; then
-    if command -v hyprctl &> /dev/null; then
-        hyprctl dispatch workspace "$WORKSPACE"
-        # Small delay to ensure workspace switch completes
-        sleep 0.5
-    else
-        echo "Warning: hyprctl not found, cannot switch workspace"
-    fi
-fi
-
 # Launch based on flags
 if [ "$NO_TERMINAL" = true ] || [ "$BACKGROUND" = true ]; then
     # Launch without terminal
@@ -145,6 +134,19 @@ else
                 ;;
         esac
         echo "Opened new $TERMINAL window with Claude"
+
+        # Move terminal to specified workspace (Hyprland)
+        if [ -n "$WORKSPACE" ]; then
+            if command -v hyprctl &> /dev/null; then
+                # Brief delay to let window spawn
+                sleep 0.2
+                # Move active window to target workspace and switch view
+                hyprctl dispatch movetoworkspacesilent "$WORKSPACE"
+                hyprctl dispatch workspace "$WORKSPACE"
+            else
+                echo "Warning: hyprctl not found, cannot move to workspace"
+            fi
+        fi
     fi
 fi
 
