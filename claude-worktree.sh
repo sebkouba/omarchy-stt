@@ -102,7 +102,7 @@ if [ -n "$WORKSPACE" ]; then
     if command -v hyprctl &> /dev/null; then
         hyprctl dispatch workspace "$WORKSPACE"
         # Small delay to ensure workspace switch completes
-        sleep 0.1
+        sleep 0.5
     else
         echo "Warning: hyprctl not found, cannot switch workspace"
     fi
