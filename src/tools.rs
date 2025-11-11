@@ -77,19 +77,14 @@ fn execute_cli_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<Str
 
     log(&format!("Executing CLI tool: {} {:?}", tool.command, substituted_args));
 
-    let output = Command::new(&tool.command)
+    // Use spawn() instead of output() to launch detached without waiting
+    let child = Command::new(&tool.command)
         .args(&substituted_args)
-        .output()?;
+        .spawn()?;
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        log(&format!("Tool executed successfully: {}", tool.name));
-        Ok(format!("Success: {}", stdout.trim()))
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        log(&format!("Tool execution failed: {}", stderr));
-        Err(format!("Command failed: {}", stderr).into())
-    }
+    let pid = child.id();
+    log(&format!("Tool launched successfully (PID: {}): {}", pid, tool.name));
+    Ok(format!("Launched: {} (PID: {})", tool.name, pid))
 }
 
 fn execute_http_tool(tool: &ToolConfig, _params: &serde_json::Value) -> Result<String, Box<dyn Error>> {
