@@ -161,7 +161,10 @@ impl GroqClient {
         let config = crate::config::Config::load()?;
 
         // Build messages with or without history based on config
-        let mut messages = if config.llm.conversation_history_enabled {
+        let history_enabled = Self::is_history_enabled_for_prompt(&config.llm, prompt_name);
+        log(&format!("Conversation history for prompt '{}': {}", prompt_name, if history_enabled { "ENABLED" } else { "DISABLED" }));
+
+        let mut messages = if history_enabled {
             self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm)?
         } else {
             self.build_messages_without_history(prompt, transcription)
@@ -263,8 +266,8 @@ impl GroqClient {
 
             // Not a tool call - return the final content
             if let Some(ref content) = choice.message.content {
-                // Save to history if enabled
-                if config.llm.conversation_history_enabled {
+                // Save to history if enabled for this prompt
+                if history_enabled {
                     if let Err(e) = self.save_to_history(prompt, transcription, prompt_name, content, &config.llm) {
                         log(&format!("Warning: Failed to save conversation history: {}", e));
                     }
@@ -318,6 +321,17 @@ impl GroqClient {
                 }
             })
             .collect()
+    }
+
+    /// Check if conversation history is enabled for a specific prompt
+    fn is_history_enabled_for_prompt(llm_config: &crate::config::LlmConfig, prompt_name: &str) -> bool {
+        // Must have global toggle enabled AND prompt must be in the list
+        if !llm_config.conversation_history_enabled {
+            return false;
+        }
+
+        // Check if this prompt is in the enabled list
+        llm_config.conversation_history_prompts.contains(&prompt_name.to_string())
     }
 
     /// Executes a tool call using the generic tools module

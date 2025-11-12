@@ -228,8 +228,24 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             llm_processing_triggered = true;
             log(&format!("Prompt requested: {}", prompt_name), &config.audio.log_file);
 
-            // Try to process with Groq API
-            match process_with_groq(&processed_text, prompt_name, &config.audio.log_file) {
+            // Check if this is a clear history command
+            if is_clear_history_command(&processed_text, &config) {
+                log(&format!("Clear history command detected for prompt '{}'", prompt_name), &config.audio.log_file);
+                match clear_conversation_history(prompt_name, &config) {
+                    Ok(_) => {
+                        log("Conversation history cleared", &config.audio.log_file);
+                        notifications::notify("🗑️ History Cleared", &format!("Conversation history for '{}' has been reset", prompt_name), 2000).ok();
+                        "".to_string()  // Return empty string so nothing gets pasted
+                    }
+                    Err(e) => {
+                        log(&format!("ERROR: Failed to clear history: {}", e), &config.audio.log_file);
+                        notifications::notify_error(&format!("Failed to clear history: {}", e)).ok();
+                        processed_text.clone()
+                    }
+                }
+            } else {
+                // Try to process with Groq API
+                match process_with_groq(&processed_text, prompt_name, &config.audio.log_file) {
                 Ok(result) => {
                     log(&format!("Groq processing successful: '{}'", result.text), &config.audio.log_file);
                     tool_was_called = result.tool_called;
@@ -242,6 +258,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                     log(&format!("ERROR: Groq processing failed: {}", e), &config.audio.log_file);
                     notifications::notify_error(&format!("Groq API failed: {}\nPasted raw transcription.", e)).ok();
                     processed_text.clone()
+                }
                 }
             }
         } else {
@@ -621,4 +638,41 @@ fn transcribe_file(file: &PathBuf, log_file: &str) -> Result<String, Box<dyn Err
     let text = String::from_utf8(output.stdout)?;
     log(&format!("transcribe-client stdout: '{}'", text), log_file);
     Ok(text.trim().to_string())
+}
+
+/// Check if the transcribed text matches the clear history command
+/// Normalized: lowercase, remove all punctuation and extra spaces
+fn is_clear_history_command(text: &str, config: &transcribe_rs::config::Config) -> bool {
+    let clear_word = &config.llm.conversation_history_clear_word;
+
+    // Normalize both strings: lowercase, remove punctuation, trim spaces
+    let normalize = |s: &str| -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    let normalized_text = normalize(text);
+    let normalized_clear_word = normalize(clear_word);
+
+    normalized_text == normalized_clear_word
+}
+
+/// Clear the conversation history for a specific prompt
+fn clear_conversation_history(prompt_name: &str, config: &transcribe_rs::config::Config) -> Result<(), Box<dyn Error>> {
+    use transcribe_rs::conversation_history::ConversationHistory;
+
+    let history = ConversationHistory::new(
+        prompt_name,
+        config.llm.conversation_history_minutes,
+        config.llm.conversation_max_turns,
+        &config.llm.conversation_history_dir,
+    );
+
+    history.clear()?;
+    Ok(())
 }

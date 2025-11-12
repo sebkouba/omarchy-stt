@@ -93,6 +93,14 @@ pub struct DictationLoggingConfig {
 pub struct LlmConfig {
     /// Enable conversation history for multi-turn conversations
     pub conversation_history_enabled: bool,
+    /// List of prompt names that should have conversation history enabled
+    /// Example: ["ask", "chat"] - only these prompts will maintain history
+    /// Empty list means no prompts have history (even if conversation_history_enabled is true)
+    pub conversation_history_prompts: Vec<String>,
+    /// Word that, when spoken alone, clears the conversation history
+    /// Matched case-insensitively, ignoring punctuation and extra spaces
+    /// Example: "clear" - saying "clear" or "Clear." will reset history
+    pub conversation_history_clear_word: String,
     /// How many minutes of history to include
     pub conversation_history_minutes: u32,
     /// Maximum number of turns (user+assistant pairs) to include
@@ -206,6 +214,8 @@ impl Default for LlmConfig {
     fn default() -> Self {
         LlmConfig {
             conversation_history_enabled: true,
+            conversation_history_prompts: vec!["ask".to_string()],  // Default to "ask" prompt only
+            conversation_history_clear_word: "clear".to_string(),
             conversation_history_minutes: 5,
             conversation_max_turns: 10,
             conversation_history_dir: "/tmp".to_string(),
