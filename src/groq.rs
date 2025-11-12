@@ -146,39 +146,26 @@ impl GroqClient {
     /// # Arguments
     /// * `prompt` - The prompt/instructions from the .md file
     /// * `transcription` - The transcribed text to process
+    /// * `prompt_name` - The name of the prompt (for conversation history tracking)
     ///
     /// # Returns
     /// CompletionResult with the processed text and whether a tool was called
-    pub fn complete(&self, prompt: &str, transcription: &str) -> Result<CompletionResult, Box<dyn Error>> {
+    pub fn complete(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
         // Use tokio runtime to run async code
         let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async(prompt, transcription))
+        runtime.block_on(self.complete_async(prompt, transcription, prompt_name))
     }
 
     /// Async version of complete with full tool calling support
-    async fn complete_async(&self, prompt: &str, transcription: &str) -> Result<CompletionResult, Box<dyn Error>> {
-        // Kimi requires this exact system prompt according to the docs
-        let system_prompt = "You are Kimi, an AI assistant created by Moonshot AI.";
+    async fn complete_async(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
+        let config = crate::config::Config::load()?;
 
-        // User message is the prompt instructions followed by the transcription
-        let user_message = format!("{}\n\nOriginal dictation:\n{}", prompt, transcription);
-
-        let mut messages: Vec<Message> = vec![
-            Message {
-                role: "system".to_string(),
-                content: Some(system_prompt.to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-            Message {
-                role: "user".to_string(),
-                content: Some(user_message),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            },
-        ];
+        // Build messages with or without history based on config
+        let mut messages = if config.llm.conversation_history_enabled {
+            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm)?
+        } else {
+            self.build_messages_without_history(prompt, transcription)
+        };
 
         // Convert ToolConfig to API Tool format
         let tools = if !self.tools.is_empty() {
@@ -276,6 +263,13 @@ impl GroqClient {
 
             // Not a tool call - return the final content
             if let Some(ref content) = choice.message.content {
+                // Save to history if enabled
+                if config.llm.conversation_history_enabled {
+                    if let Err(e) = self.save_to_history(prompt, transcription, prompt_name, content, &config.llm) {
+                        log(&format!("Warning: Failed to save conversation history: {}", e));
+                    }
+                }
+
                 return Ok(CompletionResult {
                     text: content.clone(),
                     tool_called: tool_was_called,
@@ -351,6 +345,123 @@ impl GroqClient {
             success: true,
             message: result,
         })
+    }
+
+    /// Build messages without conversation history (legacy behavior)
+    fn build_messages_without_history(&self, prompt: &str, transcription: &str) -> Vec<Message> {
+        vec![
+            Message {
+                role: "system".to_string(),
+                content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+            Message {
+                role: "user".to_string(),
+                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            },
+        ]
+    }
+
+    /// Build messages with conversation history
+    fn build_messages_with_history(&self, prompt: &str, transcription: &str, prompt_name: &str, llm_config: &crate::config::LlmConfig) -> Result<Vec<Message>, Box<dyn Error>> {
+        use crate::conversation_history::ConversationHistory;
+
+        let history = ConversationHistory::new(
+            prompt_name,
+            llm_config.conversation_history_minutes,
+            llm_config.conversation_max_turns,
+            &llm_config.conversation_history_dir,
+        );
+
+        let history_messages = history.load_history()?;
+
+        log(&format!("Loaded {} history messages for prompt '{}'", history_messages.len(), prompt_name));
+
+        let mut messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }
+        ];
+
+        if history_messages.is_empty() {
+            // First message in conversation - include prompt instructions
+            log("No history found, starting new conversation");
+            messages.push(Message {
+                role: "user".to_string(),
+                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+        } else {
+            // Continuing conversation - add history then new dictation
+            log("Continuing existing conversation");
+
+            // Add all history messages
+            for history_msg in history_messages {
+                messages.push(Message {
+                    role: history_msg.role,
+                    content: Some(history_msg.content),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    name: None,
+                });
+            }
+
+            // Add new dictation (just the raw transcription, no prompt)
+            messages.push(Message {
+                role: "user".to_string(),
+                content: Some(transcription.to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+        }
+
+        Ok(messages)
+    }
+
+    /// Save conversation turn to history
+    fn save_to_history(&self, prompt: &str, transcription: &str, prompt_name: &str, assistant_response: &str, llm_config: &crate::config::LlmConfig) -> Result<(), Box<dyn Error>> {
+        use crate::conversation_history::ConversationHistory;
+
+        let history = ConversationHistory::new(
+            prompt_name,
+            llm_config.conversation_history_minutes,
+            llm_config.conversation_max_turns,
+            &llm_config.conversation_history_dir,
+        );
+
+        // Check if this is a new conversation or continuation
+        let history_messages = history.load_history()?;
+        let is_first = history_messages.is_empty();
+
+        // Save user message
+        if is_first {
+            // First message includes prompt instructions
+            let full_user_message = format!("{}\n\nOriginal dictation:\n{}", prompt, transcription);
+            history.append_user(&full_user_message, true)?;
+            log("Saved first user message with prompt instructions to history");
+        } else {
+            // Subsequent messages are just the raw dictation
+            history.append_user(transcription, false)?;
+            log("Saved user message to history");
+        }
+
+        // Save assistant response
+        history.append_assistant(assistant_response)?;
+        log("Saved assistant response to history");
+
+        Ok(())
     }
 }
 
@@ -453,7 +564,8 @@ mod tests {
         let client = GroqClient::from_env_file().expect("Failed to load API key");
         let result = client.complete(
             "You are a helpful assistant. Respond with 'test passed'.",
-            "say test passed"
+            "say test passed",
+            "test"
         );
         assert!(result.is_ok());
         if let Ok(completion) = result {
@@ -470,7 +582,8 @@ mod tests {
         // Test a command that should trigger tool calling (if tools are configured)
         let result = client.complete(
             "When the user asks you to use tools, use the appropriate tool. Always respond confirming the action.",
-            "test command"
+            "test command",
+            "test"
         );
 
         assert!(result.is_ok());

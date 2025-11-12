@@ -57,6 +57,7 @@ pub use remote::RemoteTranscriptionEngine;
 pub mod circular_buffer;
 pub mod clipboard;
 pub mod config;
+pub mod conversation_history;
 pub mod dictation_logger;
 pub mod groq;
 pub mod notifications;

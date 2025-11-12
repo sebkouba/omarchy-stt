@@ -16,6 +16,8 @@ pub struct Config {
     pub transcription_corrections: TranscriptionCorrectionsConfig,
     #[serde(default)]
     pub dictation_logging: DictationLoggingConfig,
+    #[serde(default)]
+    pub llm: LlmConfig,
 }
 
 /// Audio recording configuration
@@ -86,6 +88,19 @@ pub struct DictationLoggingConfig {
     pub llm_log_path: String,
 }
 
+/// LLM conversation history configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmConfig {
+    /// Enable conversation history for multi-turn conversations
+    pub conversation_history_enabled: bool,
+    /// How many minutes of history to include
+    pub conversation_history_minutes: u32,
+    /// Maximum number of turns (user+assistant pairs) to include
+    pub conversation_max_turns: usize,
+    /// Directory for storing history files
+    pub conversation_history_dir: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -95,6 +110,7 @@ impl Default for Config {
             integration: IntegrationConfig::default(),
             transcription_corrections: TranscriptionCorrectionsConfig::default(),
             dictation_logging: DictationLoggingConfig::default(),
+            llm: LlmConfig::default(),
         }
     }
 }
@@ -182,6 +198,17 @@ impl Default for DictationLoggingConfig {
             llm_log_path: config_dir.join("llm_corrections_log.csv")
                 .to_string_lossy()
                 .to_string(),
+        }
+    }
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        LlmConfig {
+            conversation_history_enabled: true,
+            conversation_history_minutes: 5,
+            conversation_max_turns: 10,
+            conversation_history_dir: "/tmp".to_string(),
         }
     }
 }

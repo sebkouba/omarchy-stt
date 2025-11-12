@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("\nSending request to Kimi K2...");
         println!("(Check /tmp/ptt_rust_debug.log for detailed request/response)\n");
 
-        match client.complete(test_prompt, test_input) {
+        match client.complete(test_prompt, test_input, "test") {
             Ok(result) => {
                 println!("✅ Success!");
                 println!("Response: {}", result.text);

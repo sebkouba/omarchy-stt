@@ -579,7 +579,7 @@ fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<tr
     let client = groq::GroqClient::from_env_file()?;
 
     log("Sending request to Groq API...", log_file);
-    let result = client.complete(&prompt, text)?;
+    let result = client.complete(&prompt, text, prompt_name)?;
 
     Ok(result)
 }

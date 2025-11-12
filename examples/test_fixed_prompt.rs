@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let client = GroqClient::from_env_file()?;
 
     println!("--- Test 1: LED Control (should call tool) ---");
-    match client.complete(&fixed_prompt, "Turn off the LEDs please") {
+    match client.complete(&fixed_prompt, "Turn off the LEDs please", "test") {
         Ok(result) => {
             println!("✅ Response: {}", result.text);
             println!("Tool called: {}\n", result.tool_called);
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("--- Test 2: Regular Dictation (should clean text) ---");
-    match client.complete(&fixed_prompt, "um so like I think we should uh focus on the API") {
+    match client.complete(&fixed_prompt, "um so like I think we should uh focus on the API", "test") {
         Ok(result) => {
             println!("✅ Response: {}", result.text);
             println!("Tool called: {}\n", result.tool_called);
