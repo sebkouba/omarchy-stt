@@ -55,6 +55,41 @@ pub fn load_tools() -> Result<Vec<ToolConfig>, Box<dyn Error>> {
     Ok(tools_file.tools)
 }
 
+/// Load a specific set of tools by name from ~/.config/transcribe-rs/tools.json
+///
+/// # Arguments
+/// * `tool_names` - List of tool names to load (e.g., ["switch_workspace", "turn_leds_on"])
+///
+/// # Returns
+/// Vector of ToolConfig objects matching the requested names
+///
+/// # Example
+/// ```no_run
+/// let tools = transcribe_rs::tools::load_tool_set(&["turn_leds_on".to_string(), "turn_leds_off".to_string()])?;
+/// // Returns only the LED-related tools from tools.json
+/// ```
+pub fn load_tool_set(tool_names: &[String]) -> Result<Vec<ToolConfig>, Box<dyn Error>> {
+    // Load all tools first
+    let all_tools = load_tools()?;
+
+    // Filter to only the requested tool names
+    let filtered_tools: Vec<ToolConfig> = all_tools
+        .into_iter()
+        .filter(|tool| tool_names.contains(&tool.name))
+        .collect();
+
+    log(&format!("Loaded {} tools from tool set (requested: {})", filtered_tools.len(), tool_names.len()));
+
+    // Warn if some tools weren't found
+    if filtered_tools.len() < tool_names.len() {
+        let found_names: Vec<&String> = filtered_tools.iter().map(|t| &t.name).collect();
+        let missing: Vec<&String> = tool_names.iter().filter(|name| !found_names.contains(name)).collect();
+        log(&format!("Warning: {} tools not found in config: {:?}", missing.len(), missing));
+    }
+
+    Ok(filtered_tools)
+}
+
 /// Execute a tool with parameter substitution
 pub fn execute_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<String, Box<dyn Error>> {
     let backend = if tool.backend.is_empty() { "cli" } else { &tool.backend };

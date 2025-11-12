@@ -141,6 +141,26 @@ impl GroqClient {
         Ok(Self::new(api_key, Vec::new()))
     }
 
+    /// Creates a new Groq client with a specific set of tools
+    ///
+    /// # Arguments
+    /// * `tool_names` - List of tool names to load from config (e.g., ["turn_leds_on", "switch_workspace"])
+    ///
+    /// # Returns
+    /// GroqClient configured with only the specified tools
+    ///
+    /// # Example
+    /// ```no_run
+    /// let client = GroqClient::from_env_file_with_tool_set(vec!["turn_leds_on".to_string()])?;
+    /// // Client will only have access to the turn_leds_on tool
+    /// ```
+    pub fn from_env_file_with_tool_set(tool_names: Vec<String>) -> Result<Self, Box<dyn Error>> {
+        let api_key = load_groq_api_key()?;
+        let tools = crate::tools::load_tool_set(&tool_names)?;
+        log(&format!("Loaded {} tools from tool set", tools.len()));
+        Ok(Self::new(api_key, tools))
+    }
+
     /// Sends a completion request to Groq API with tool calling support
     ///
     /// # Arguments

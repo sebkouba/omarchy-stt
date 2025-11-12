@@ -587,13 +587,35 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
 
 /// Process transcribed text with Groq API using specified prompt
 fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<transcribe_rs::groq::CompletionResult, Box<dyn Error>> {
-    use transcribe_rs::{groq, prompts};
+    use transcribe_rs::{groq, prompts, config::Config};
 
     log(&format!("Loading prompt: {}", prompt_name), log_file);
     let prompt = prompts::load_prompt(prompt_name)?;
 
-    log("Loading Groq API key from .env", log_file);
-    let client = groq::GroqClient::from_env_file()?;
+    // Load config to determine which tools to use for this prompt
+    let config = Config::load()?;
+
+    // Look up the tool set for this prompt
+    let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
+        log(&format!("Prompt '{}' mapped to tool set '{}'", prompt_name, tool_set_name), log_file);
+
+        // Look up the tool names for this tool set
+        if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
+            if tool_names.is_empty() {
+                log(&format!("Tool set '{}' is empty, creating client with no tools", tool_set_name), log_file);
+                groq::GroqClient::from_env_file_no_tools()?
+            } else {
+                log(&format!("Tool set '{}' contains {} tools, loading them", tool_set_name, tool_names.len()), log_file);
+                groq::GroqClient::from_env_file_with_tool_set(tool_names.clone())?
+            }
+        } else {
+            log(&format!("Warning: Tool set '{}' not found in config, using no tools", tool_set_name), log_file);
+            groq::GroqClient::from_env_file_no_tools()?
+        }
+    } else {
+        log(&format!("Prompt '{}' not in tool mapping, using no tools", prompt_name), log_file);
+        groq::GroqClient::from_env_file_no_tools()?
+    };
 
     log("Sending request to Groq API...", log_file);
     let result = client.complete(&prompt, text, prompt_name)?;

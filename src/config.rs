@@ -1,6 +1,7 @@
 //! Configuration management for transcribe-rs
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
@@ -107,6 +108,15 @@ pub struct LlmConfig {
     pub conversation_max_turns: usize,
     /// Directory for storing history files
     pub conversation_history_dir: String,
+    /// Named tool sets - each set is a list of tool names
+    /// Example: {"hyprland": ["switch_workspace", "focus_window"], "smart_home": ["turn_leds_on", "turn_leds_off"]}
+    #[serde(default)]
+    pub tool_sets: HashMap<String, Vec<String>>,
+    /// Map prompt names to tool set names
+    /// Example: {"ask": "none", "clean": "smart_home", "control": "hyprland"}
+    /// If a prompt is not in this map, it defaults to no tools
+    #[serde(default)]
+    pub prompt_tool_mapping: HashMap<String, String>,
 }
 
 impl Default for Config {
@@ -212,6 +222,18 @@ impl Default for DictationLoggingConfig {
 
 impl Default for LlmConfig {
     fn default() -> Self {
+        let mut tool_sets = HashMap::new();
+        // Define default tool sets
+        tool_sets.insert("none".to_string(), Vec::new());
+        // Add more default tool sets as examples (empty for now since no tools defined)
+        tool_sets.insert("all".to_string(), Vec::new());
+
+        let mut prompt_tool_mapping = HashMap::new();
+        // Default: ask prompt gets no tools (for questions/conversation)
+        prompt_tool_mapping.insert("ask".to_string(), "none".to_string());
+        // Default: clean prompt gets all tools (for dictation with actions)
+        prompt_tool_mapping.insert("clean".to_string(), "all".to_string());
+
         LlmConfig {
             conversation_history_enabled: true,
             conversation_history_prompts: vec!["ask".to_string()],  // Default to "ask" prompt only
@@ -219,6 +241,8 @@ impl Default for LlmConfig {
             conversation_history_minutes: 5,
             conversation_max_turns: 10,
             conversation_history_dir: "/tmp".to_string(),
+            tool_sets,
+            prompt_tool_mapping,
         }
     }
 }
