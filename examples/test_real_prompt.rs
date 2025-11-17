@@ -1,6 +1,6 @@
-use transcribe_rs::groq::GroqClient;
 use std::error::Error;
 use std::fs;
+use transcribe_rs::groq::GroqClient;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("=== Testing with Real clean.md Prompt ===\n");

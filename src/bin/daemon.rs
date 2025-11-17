@@ -1,10 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use transcribe_rs::{
     config::Config,
     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
@@ -31,7 +31,10 @@ struct DaemonState {
 }
 
 impl DaemonState {
-    fn new(model_path: &Path, model_params: ParakeetModelParams) -> Result<Self, Box<dyn std::error::Error>> {
+    fn new(
+        model_path: &Path,
+        model_params: ParakeetModelParams,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         // Load Parakeet model
         let mut engine = ParakeetEngine::new();
         engine.load_model_with_params(model_path, model_params)?;
@@ -46,7 +49,10 @@ impl DaemonState {
     }
 }
 
-fn handle_client(stream: UnixStream, state: &mut DaemonState) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_client(
+    stream: UnixStream,
+    state: &mut DaemonState,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut line = String::new();
@@ -73,7 +79,10 @@ fn handle_client(stream: UnixStream, state: &mut DaemonState) -> Result<(), Box<
 }
 
 // Handle transcription request
-fn handle_transcribe_request(request: TranscribeRequest, state: &mut DaemonState) -> TranscribeResponse {
+fn handle_transcribe_request(
+    request: TranscribeRequest,
+    state: &mut DaemonState,
+) -> TranscribeResponse {
     let audio_path = PathBuf::from(&request.file);
 
     // Check if file exists
@@ -86,7 +95,10 @@ fn handle_transcribe_request(request: TranscribeRequest, state: &mut DaemonState
     }
 
     // Transcribe
-    match state.transcription_engine.transcribe_file(&audio_path, None) {
+    match state
+        .transcription_engine
+        .transcribe_file(&audio_path, None)
+    {
         Ok(result) => TranscribeResponse {
             success: true,
             text: Some(result.text),
@@ -171,23 +183,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "int8" => ParakeetModelParams::int8(),
         "fp32" => ParakeetModelParams::fp32(),
         _ => {
-            eprintln!("⚠️  Unknown quantization: {}, defaulting to int8", config.model.quantization);
+            eprintln!(
+                "⚠️  Unknown quantization: {}, defaulting to int8",
+                config.model.quantization
+            );
             ParakeetModelParams::int8()
         }
     };
 
-    let mut state = DaemonState::new(&model_path, model_params)
-        .map_err(|e| {
-            eprintln!("❌ Failed to initialize daemon: {}", e);
-            eprintln!("\nCheck that model files are complete:");
-            eprintln!("  ls -lh {}", model_path.display());
-            eprintln!("\nExpected files:");
-            eprintln!("  - encoder-model.int8.onnx (or encoder-model.onnx for fp32)");
-            eprintln!("  - decoder_joint-model.int8.onnx (or decoder_joint-model.onnx for fp32)");
-            eprintln!("  - nemo128.onnx");
-            eprintln!("  - vocab.txt");
-            e
-        })?;
+    let mut state = DaemonState::new(&model_path, model_params).map_err(|e| {
+        eprintln!("❌ Failed to initialize daemon: {}", e);
+        eprintln!("\nCheck that model files are complete:");
+        eprintln!("  ls -lh {}", model_path.display());
+        eprintln!("\nExpected files:");
+        eprintln!("  - encoder-model.int8.onnx (or encoder-model.onnx for fp32)");
+        eprintln!("  - decoder_joint-model.int8.onnx (or decoder_joint-model.onnx for fp32)");
+        eprintln!("  - nemo128.onnx");
+        eprintln!("  - vocab.txt");
+        e
+    })?;
     eprintln!("✅ Model loaded successfully!");
 
     // Check if socket exists and handle it
@@ -200,7 +214,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "Socket {} already exists and another daemon is running. \
                 Stop the other daemon first or use a different socket path.",
                 socket_path
-            ).into());
+            )
+            .into());
         }
     }
 

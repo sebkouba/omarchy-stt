@@ -1,9 +1,9 @@
+use crate::tools::ToolConfig;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::error::Error;
 use std::fs;
 use std::io::Write;
-use crate::tools::ToolConfig;
 
 /// Append a log message to the debug log
 fn log(message: &str) {
@@ -146,28 +146,55 @@ impl GroqClient {
     /// # Arguments
     /// * `prompt` - The prompt/instructions from the .md file
     /// * `transcription` - The transcribed text to process
+    /// * `context` - Optional context from clipboard (highlighted text)
     /// * `prompt_name` - The name of the prompt (for conversation history tracking)
     ///
     /// # Returns
     /// CompletionResult with the processed text and whether a tool was called
-    pub fn complete(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
+    pub fn complete(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        context: Option<&str>,
+        prompt_name: &str,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
         // Use tokio runtime to run async code
         let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async(prompt, transcription, prompt_name))
+        runtime.block_on(self.complete_async(prompt, transcription, context, prompt_name))
     }
 
     /// Async version of complete with full tool calling support
-    async fn complete_async(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
+    async fn complete_async(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        context: Option<&str>,
+        prompt_name: &str,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
         let config = crate::config::Config::load()?;
 
         // Build messages with or without history based on config
         let history_enabled = Self::is_history_enabled_for_prompt(&config.llm, prompt_name);
-        log(&format!("Conversation history for prompt '{}': {}", prompt_name, if history_enabled { "ENABLED" } else { "DISABLED" }));
+        log(&format!(
+            "Conversation history for prompt '{}': {}",
+            prompt_name,
+            if history_enabled {
+                "ENABLED"
+            } else {
+                "DISABLED"
+            }
+        ));
 
         let mut messages = if history_enabled {
-            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm)?
+            self.build_messages_with_history(
+                prompt,
+                transcription,
+                context,
+                prompt_name,
+                &config.llm,
+            )?
         } else {
-            self.build_messages_without_history(prompt, transcription)
+            self.build_messages_without_history(prompt, transcription, context)
         };
 
         // Convert ToolConfig to API Tool format
@@ -188,7 +215,11 @@ impl GroqClient {
                 max_completion_tokens: 4096,
                 top_p: 1.0,
                 tools: tools.clone(),
-                tool_choice: if tools.is_some() { Some("auto".to_string()) } else { None },
+                tool_choice: if tools.is_some() {
+                    Some("auto".to_string())
+                } else {
+                    None
+                },
             };
 
             // Log the request for debugging
@@ -197,9 +228,13 @@ impl GroqClient {
                 log(&format!("Request JSON:\n{}", request_json));
             }
             log(&format!("Tools count: {}", self.tools.len()));
-            log(&format!("Tools in request: {}", if tools.is_some() { "YES" } else { "NO" }));
+            log(&format!(
+                "Tools in request: {}",
+                if tools.is_some() { "YES" } else { "NO" }
+            ));
 
-            let response = self.http_client
+            let response = self
+                .http_client
                 .post(GROQ_API_URL)
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", self.api_key))
@@ -210,8 +245,12 @@ impl GroqClient {
             let response_text = response.text().await?;
             log(&format!("Response text: {}", response_text));
 
-            let api_response: ApiResponse = serde_json::from_str(&response_text)
-                .map_err(|e| format!("Failed to parse response: {} | Response: {}", e, response_text))?;
+            let api_response: ApiResponse = serde_json::from_str(&response_text).map_err(|e| {
+                format!(
+                    "Failed to parse response: {} | Response: {}",
+                    e, response_text
+                )
+            })?;
 
             let choice = api_response
                 .choices
@@ -239,7 +278,10 @@ impl GroqClient {
                         let function_name = &tool_call.function.name;
                         let function_args = &tool_call.function.arguments;
 
-                        log(&format!("Executing tool: {} with args: {}", function_name, function_args));
+                        log(&format!(
+                            "Executing tool: {} with args: {}",
+                            function_name, function_args
+                        ));
 
                         // Execute the tool
                         let result = self.execute_tool(function_name, function_args).await?;
@@ -261,15 +303,27 @@ impl GroqClient {
                 // Continue the loop to get the final response
                 continue;
             } else {
-                log(&format!("Model did not request tool calls. Content: {:?}", choice.message.content));
+                log(&format!(
+                    "Model did not request tool calls. Content: {:?}",
+                    choice.message.content
+                ));
             }
 
             // Not a tool call - return the final content
             if let Some(ref content) = choice.message.content {
                 // Save to history if enabled for this prompt
                 if history_enabled {
-                    if let Err(e) = self.save_to_history(prompt, transcription, prompt_name, content, &config.llm) {
-                        log(&format!("Warning: Failed to save conversation history: {}", e));
+                    if let Err(e) = self.save_to_history(
+                        prompt,
+                        transcription,
+                        prompt_name,
+                        content,
+                        &config.llm,
+                    ) {
+                        log(&format!(
+                            "Warning: Failed to save conversation history: {}",
+                            e
+                        ));
                     }
                 }
 
@@ -279,7 +333,11 @@ impl GroqClient {
                 });
             }
 
-            return Err(format!("Unexpected response at iteration {}: finish_reason={:?}, no content", iteration, finish_reason).into());
+            return Err(format!(
+                "Unexpected response at iteration {}: finish_reason={:?}, no content",
+                iteration, finish_reason
+            )
+            .into());
         }
 
         Err(format!("Max tool iterations ({}) exceeded", MAX_TOOL_ITERATIONS).into())
@@ -324,18 +382,27 @@ impl GroqClient {
     }
 
     /// Check if conversation history is enabled for a specific prompt
-    fn is_history_enabled_for_prompt(llm_config: &crate::config::LlmConfig, prompt_name: &str) -> bool {
+    fn is_history_enabled_for_prompt(
+        llm_config: &crate::config::LlmConfig,
+        prompt_name: &str,
+    ) -> bool {
         // Must have global toggle enabled AND prompt must be in the list
         if !llm_config.conversation_history_enabled {
             return false;
         }
 
         // Check if this prompt is in the enabled list
-        llm_config.conversation_history_prompts.contains(&prompt_name.to_string())
+        llm_config
+            .conversation_history_prompts
+            .contains(&prompt_name.to_string())
     }
 
     /// Executes a tool call using the generic tools module
-    async fn execute_tool(&self, function_name: &str, args: &str) -> Result<ToolResult, Box<dyn Error>> {
+    async fn execute_tool(
+        &self,
+        function_name: &str,
+        args: &str,
+    ) -> Result<ToolResult, Box<dyn Error>> {
         // Find the tool config
         let tool_config = self
             .tools
@@ -350,7 +417,10 @@ impl GroqClient {
             serde_json::from_str(args)?
         };
 
-        log(&format!("Executing tool: {} with params: {:?}", function_name, params));
+        log(&format!(
+            "Executing tool: {} with params: {:?}",
+            function_name, params
+        ));
 
         // Execute using the tools module
         let result = crate::tools::execute_tool(tool_config, &params)?;
@@ -362,7 +432,21 @@ impl GroqClient {
     }
 
     /// Build messages without conversation history (legacy behavior)
-    fn build_messages_without_history(&self, prompt: &str, transcription: &str) -> Vec<Message> {
+    fn build_messages_without_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        context: Option<&str>,
+    ) -> Vec<Message> {
+        let user_content = if let Some(ctx) = context {
+            format!(
+                "{}\n\nContext (highlighted text):\n{}\n\nOriginal dictation:\n{}",
+                prompt, ctx, transcription
+            )
+        } else {
+            format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+        };
+
         vec![
             Message {
                 role: "system".to_string(),
@@ -373,7 +457,7 @@ impl GroqClient {
             },
             Message {
                 role: "user".to_string(),
-                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -382,7 +466,14 @@ impl GroqClient {
     }
 
     /// Build messages with conversation history
-    fn build_messages_with_history(&self, prompt: &str, transcription: &str, prompt_name: &str, llm_config: &crate::config::LlmConfig) -> Result<Vec<Message>, Box<dyn Error>> {
+    fn build_messages_with_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        context: Option<&str>,
+        prompt_name: &str,
+        llm_config: &crate::config::LlmConfig,
+    ) -> Result<Vec<Message>, Box<dyn Error>> {
         use crate::conversation_history::ConversationHistory;
 
         let history = ConversationHistory::new(
@@ -394,24 +485,34 @@ impl GroqClient {
 
         let history_messages = history.load_history()?;
 
-        log(&format!("Loaded {} history messages for prompt '{}'", history_messages.len(), prompt_name));
+        log(&format!(
+            "Loaded {} history messages for prompt '{}'",
+            history_messages.len(),
+            prompt_name
+        ));
 
-        let mut messages = vec![
-            Message {
-                role: "system".to_string(),
-                content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            }
-        ];
+        let mut messages = vec![Message {
+            role: "system".to_string(),
+            content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        }];
 
         if history_messages.is_empty() {
             // First message in conversation - include prompt instructions
             log("No history found, starting new conversation");
+            let user_content = if let Some(ctx) = context {
+                format!(
+                    "{}\n\nContext (highlighted text):\n{}\n\nOriginal dictation:\n{}",
+                    prompt, ctx, transcription
+                )
+            } else {
+                format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+            };
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -431,10 +532,18 @@ impl GroqClient {
                 });
             }
 
-            // Add new dictation (just the raw transcription, no prompt)
+            // Add new dictation with context if available
+            let user_content = if let Some(ctx) = context {
+                format!(
+                    "Context (highlighted text):\n{}\n\nOriginal dictation:\n{}",
+                    ctx, transcription
+                )
+            } else {
+                transcription.to_string()
+            };
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(transcription.to_string()),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -445,7 +554,14 @@ impl GroqClient {
     }
 
     /// Save conversation turn to history
-    fn save_to_history(&self, prompt: &str, transcription: &str, prompt_name: &str, assistant_response: &str, llm_config: &crate::config::LlmConfig) -> Result<(), Box<dyn Error>> {
+    fn save_to_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        prompt_name: &str,
+        assistant_response: &str,
+        llm_config: &crate::config::LlmConfig,
+    ) -> Result<(), Box<dyn Error>> {
         use crate::conversation_history::ConversationHistory;
 
         let history = ConversationHistory::new(
@@ -481,8 +597,7 @@ impl GroqClient {
 
 /// Loads the Groq API key from ~/.config/transcribe-rs/.env file
 fn load_groq_api_key() -> Result<String, Box<dyn Error>> {
-    let config_dir = dirs::config_dir()
-        .ok_or("Could not find config directory")?;
+    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?;
     let env_path = config_dir.join("transcribe-rs").join(".env");
 
     let env_content = fs::read_to_string(&env_path)
@@ -500,7 +615,11 @@ fn load_groq_api_key() -> Result<String, Box<dyn Error>> {
         }
     }
 
-    Err(format!("GROQ_API_KEY not found in .env file at {}", env_path.display()).into())
+    Err(format!(
+        "GROQ_API_KEY not found in .env file at {}",
+        env_path.display()
+    )
+    .into())
 }
 
 #[cfg(test)]
@@ -542,7 +661,7 @@ mod tests {
 
     #[test]
     fn test_tool_definitions() {
-        use crate::tools::{ToolConfig, ParameterSchema};
+        use crate::tools::{ParameterSchema, ToolConfig};
         use std::collections::HashMap;
 
         let mut params = HashMap::new();
@@ -579,7 +698,8 @@ mod tests {
         let result = client.complete(
             "You are a helpful assistant. Respond with 'test passed'.",
             "say test passed",
-            "test"
+            None,
+            "test",
         );
         assert!(result.is_ok());
         if let Ok(completion) = result {
@@ -597,6 +717,7 @@ mod tests {
         let result = client.complete(
             "When the user asks you to use tools, use the appropriate tool. Always respond confirming the action.",
             "test command",
+            None,
             "test"
         );
 

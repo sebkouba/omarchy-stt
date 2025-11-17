@@ -14,8 +14,8 @@ const DAEMON_SOCKET: &str = "/tmp/transcribe-rs-v2-recording.sock";
 #[test]
 #[ignore] // Requires daemon running
 fn test_daemon_ping() {
-    let mut stream = UnixStream::connect(DAEMON_SOCKET)
-        .expect("Failed to connect to daemon. Is it running?");
+    let mut stream =
+        UnixStream::connect(DAEMON_SOCKET).expect("Failed to connect to daemon. Is it running?");
 
     let request = serde_json::json!({"command": "ping"});
     writeln!(stream, "{}", request).unwrap();
@@ -28,15 +28,18 @@ fn test_daemon_ping() {
     assert_eq!(response["ok"], true);
     println!("✓ Daemon ping successful");
     println!("  Uptime: {}s", response["uptime_seconds"]);
-    println!("  Buffer fullness: {:.1}%", response["buffer_fullness"].as_f64().unwrap_or(0.0) * 100.0);
+    println!(
+        "  Buffer fullness: {:.1}%",
+        response["buffer_fullness"].as_f64().unwrap_or(0.0) * 100.0
+    );
 }
 
 #[test]
 #[ignore] // Requires daemon running
 fn test_start_stop_recording() {
     // Start recording
-    let mut stream = UnixStream::connect(DAEMON_SOCKET)
-        .expect("Failed to connect to daemon. Is it running?");
+    let mut stream =
+        UnixStream::connect(DAEMON_SOCKET).expect("Failed to connect to daemon. Is it running?");
 
     let request = serde_json::json!({"command": "start"});
     writeln!(stream, "{}", request).unwrap();
@@ -86,8 +89,8 @@ fn test_start_stop_recording() {
 #[ignore] // Requires daemon running
 fn test_concurrent_start_error() {
     // Start first recording
-    let mut stream1 = UnixStream::connect(DAEMON_SOCKET)
-        .expect("Failed to connect to daemon. Is it running?");
+    let mut stream1 =
+        UnixStream::connect(DAEMON_SOCKET).expect("Failed to connect to daemon. Is it running?");
 
     let request = serde_json::json!({"command": "start"});
     writeln!(stream1, "{}", request).unwrap();
@@ -113,7 +116,10 @@ fn test_concurrent_start_error() {
 
     let response: serde_json::Value = serde_json::from_str(&response_line).unwrap();
     assert_eq!(response["ok"], false);
-    assert!(response["error"].as_str().unwrap().contains("Already recording"));
+    assert!(response["error"]
+        .as_str()
+        .unwrap()
+        .contains("Already recording"));
 
     println!("✓ Concurrent recording correctly rejected");
 

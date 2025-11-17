@@ -41,7 +41,9 @@ struct PipelineMetrics {
     final_text: String,
 }
 
-fn measure_pipeline_performance(audio_file: &str) -> Result<PipelineMetrics, Box<dyn std::error::Error>> {
+fn measure_pipeline_performance(
+    audio_file: &str,
+) -> Result<PipelineMetrics, Box<dyn std::error::Error>> {
     let start_total = Instant::now();
 
     // Load config
@@ -93,8 +95,8 @@ fn measure_pipeline_performance(audio_file: &str) -> Result<PipelineMetrics, Box
 }
 
 fn call_transcribe_client(file: &str) -> Result<String, Box<dyn std::error::Error>> {
-    use std::process::{Command, Stdio};
     use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
     use std::thread;
 
     let client_path = PathBuf::from("./target/release/transcribe-client");
@@ -103,7 +105,8 @@ fn call_transcribe_client(file: &str) -> Result<String, Box<dyn std::error::Erro
         return Err(format!(
             "transcribe-client not found at {:?}. Run: cargo build --release",
             client_path
-        ).into());
+        )
+        .into());
     }
 
     let mut child = Command::new(&client_path)

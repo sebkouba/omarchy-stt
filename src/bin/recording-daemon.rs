@@ -132,7 +132,7 @@ fn spawn_ffmpeg_and_reader(
             "-ac",
             "1", // Mono
             "-f",
-            "s16le", // 16-bit PCM little-endian
+            "s16le",  // 16-bit PCM little-endian
             "pipe:1", // Output to stdout
         ])
         .stdout(Stdio::piped())
@@ -309,7 +309,10 @@ fn listen_on_socket(
 
 /// Handle a client connection
 fn handle_client(mut stream: UnixStream, state: SharedState) {
-    let peer_addr = stream.peer_addr().map(|a| format!("{:?}", a)).unwrap_or_else(|_| "unknown".to_string());
+    let peer_addr = stream
+        .peer_addr()
+        .map(|a| format!("{:?}", a))
+        .unwrap_or_else(|_| "unknown".to_string());
     log(&format!("Client connected: {}", peer_addr));
 
     let reader = BufReader::new(stream.try_clone().unwrap());
@@ -435,7 +438,11 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
     log(&format!("Extracted {} samples", samples.len()));
 
     // Write WAV file
-    match transcribe_rs::audio::write_wav_from_samples(&samples, SAMPLE_RATE, Path::new(OUTPUT_WAV_PATH)) {
+    match transcribe_rs::audio::write_wav_from_samples(
+        &samples,
+        SAMPLE_RATE,
+        Path::new(OUTPUT_WAV_PATH),
+    ) {
         Ok(_) => {
             let duration_ms = (samples.len() as f64 / SAMPLE_RATE as f64 * 1000.0) as u64;
             let latency_ms = start_time.elapsed().as_millis() as u64;

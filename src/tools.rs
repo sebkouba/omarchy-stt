@@ -44,20 +44,33 @@ pub fn load_tools() -> Result<Vec<ToolConfig>, Box<dyn Error>> {
     let config_path = get_config_path()?;
 
     if !config_path.exists() {
-        log(&format!("Tools config not found at {:?}, returning empty list", config_path));
+        log(&format!(
+            "Tools config not found at {:?}, returning empty list",
+            config_path
+        ));
         return Ok(Vec::new());
     }
 
     let contents = fs::read_to_string(&config_path)?;
     let tools_file: ToolsFile = serde_json::from_str(&contents)?;
 
-    log(&format!("Loaded {} tools from config", tools_file.tools.len()));
+    log(&format!(
+        "Loaded {} tools from config",
+        tools_file.tools.len()
+    ));
     Ok(tools_file.tools)
 }
 
 /// Execute a tool with parameter substitution
-pub fn execute_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<String, Box<dyn Error>> {
-    let backend = if tool.backend.is_empty() { "cli" } else { &tool.backend };
+pub fn execute_tool(
+    tool: &ToolConfig,
+    params: &serde_json::Value,
+) -> Result<String, Box<dyn Error>> {
+    let backend = if tool.backend.is_empty() {
+        "cli"
+    } else {
+        &tool.backend
+    };
 
     match backend {
         "cli" => execute_cli_tool(tool, params),
@@ -66,7 +79,10 @@ pub fn execute_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<Str
     }
 }
 
-fn execute_cli_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<String, Box<dyn Error>> {
+fn execute_cli_tool(
+    tool: &ToolConfig,
+    params: &serde_json::Value,
+) -> Result<String, Box<dyn Error>> {
     // Substitute parameters in command and args
     let mut substituted_args = Vec::new();
 
@@ -75,7 +91,10 @@ fn execute_cli_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<Str
         substituted_args.push(substituted);
     }
 
-    log(&format!("Executing CLI tool: {} {:?}", tool.command, substituted_args));
+    log(&format!(
+        "Executing CLI tool: {} {:?}",
+        tool.command, substituted_args
+    ));
 
     // Use spawn() instead of output() to launch detached without waiting
     let child = Command::new(&tool.command)
@@ -83,28 +102,36 @@ fn execute_cli_tool(tool: &ToolConfig, params: &serde_json::Value) -> Result<Str
         .spawn()?;
 
     let pid = child.id();
-    log(&format!("Tool launched successfully (PID: {}): {}", pid, tool.name));
+    log(&format!(
+        "Tool launched successfully (PID: {}): {}",
+        pid, tool.name
+    ));
     Ok(format!("Launched: {} (PID: {})", tool.name, pid))
 }
 
-fn execute_http_tool(tool: &ToolConfig, _params: &serde_json::Value) -> Result<String, Box<dyn Error>> {
-    let http_config = tool.http.as_ref()
+fn execute_http_tool(
+    tool: &ToolConfig,
+    _params: &serde_json::Value,
+) -> Result<String, Box<dyn Error>> {
+    let http_config = tool
+        .http
+        .as_ref()
         .ok_or("HTTP backend requires http config")?;
 
-    log(&format!("Executing HTTP tool: {} {} {}", http_config.method, http_config.url, http_config.body));
+    log(&format!(
+        "Executing HTTP tool: {} {} {}",
+        http_config.method, http_config.url, http_config.body
+    ));
 
     let client = reqwest::blocking::Client::new();
 
     let response = match http_config.method.to_uppercase().as_str() {
-        "POST" => {
-            client.post(&http_config.url)
-                .header("Content-Type", "application/json")
-                .body(http_config.body.clone())
-                .send()?
-        }
-        "GET" => {
-            client.get(&http_config.url).send()?
-        }
+        "POST" => client
+            .post(&http_config.url)
+            .header("Content-Type", "application/json")
+            .body(http_config.body.clone())
+            .send()?,
+        "GET" => client.get(&http_config.url).send()?,
         method => return Err(format!("Unsupported HTTP method: {}", method).into()),
     };
 
@@ -128,7 +155,8 @@ fn substitute_params(template: &str, params: &serde_json::Value) -> Result<Strin
         let param_name = &cap[1];
         let placeholder = &cap[0];
 
-        let value = params.get(param_name)
+        let value = params
+            .get(param_name)
             .ok_or(format!("Missing parameter: {}", param_name))?;
 
         let value_str = match value {

@@ -183,7 +183,8 @@ impl Default for TranscriptionCorrectionsConfig {
 
         TranscriptionCorrectionsConfig {
             enabled: true,
-            corrections_file: config_dir.join("transcription_corrections.json")
+            corrections_file: config_dir
+                .join("transcription_corrections.json")
                 .to_string_lossy()
                 .to_string(),
         }
@@ -197,13 +198,15 @@ impl Default for DictationLoggingConfig {
             .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
 
         DictationLoggingConfig {
-            enabled: false,  // Disabled by default for privacy
+            enabled: false, // Disabled by default for privacy
             basic_log_enabled: true,
             llm_log_enabled: true,
-            basic_log_path: config_dir.join("dictation_log.csv")
+            basic_log_path: config_dir
+                .join("dictation_log.csv")
                 .to_string_lossy()
                 .to_string(),
-            llm_log_path: config_dir.join("llm_corrections_log.csv")
+            llm_log_path: config_dir
+                .join("llm_corrections_log.csv")
                 .to_string_lossy()
                 .to_string(),
         }
@@ -214,7 +217,7 @@ impl Default for LlmConfig {
     fn default() -> Self {
         LlmConfig {
             conversation_history_enabled: true,
-            conversation_history_prompts: vec!["ask".to_string()],  // Default to "ask" prompt only
+            conversation_history_prompts: vec!["ask".to_string()], // Default to "ask" prompt only
             conversation_history_clear_word: "clear".to_string(),
             conversation_history_minutes: 5,
             conversation_max_turns: 10,
@@ -254,8 +257,7 @@ impl Config {
 
     /// Get the path to the config file
     pub fn config_path() -> Result<PathBuf, Box<dyn Error>> {
-        let config_dir = dirs::config_dir()
-            .ok_or("Could not find config directory")?;
+        let config_dir = dirs::config_dir().ok_or("Could not find config directory")?;
         Ok(config_dir.join("transcribe-rs").join("config.toml"))
     }
 }

@@ -17,11 +17,11 @@ pub struct ConversationHistory {
 /// A single entry in the conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
-    pub timestamp: u64,  // Unix timestamp in seconds
-    pub role: String,    // "user" or "assistant"
+    pub timestamp: u64, // Unix timestamp in seconds
+    pub role: String,   // "user" or "assistant"
     pub content: String,
     #[serde(default)]
-    pub is_first: bool,  // True if this is the first user message with prompt instructions
+    pub is_first: bool, // True if this is the first user message with prompt instructions
 }
 
 /// Message format compatible with groq.rs Message struct
@@ -39,12 +39,23 @@ impl ConversationHistory {
     /// * `max_age_minutes` - How many minutes of history to keep
     /// * `max_turns` - Maximum number of turns (user+assistant pairs)
     /// * `history_dir` - Directory to store history files
-    pub fn new(prompt_name: &str, max_age_minutes: u32, max_turns: usize, history_dir: &str) -> Self {
+    pub fn new(
+        prompt_name: &str,
+        max_age_minutes: u32,
+        max_turns: usize,
+        history_dir: &str,
+    ) -> Self {
         // Handle empty prompt name with fallback
-        let safe_prompt_name = if prompt_name.is_empty() { "default" } else { prompt_name };
+        let safe_prompt_name = if prompt_name.is_empty() {
+            "default"
+        } else {
+            prompt_name
+        };
 
-        let history_file = PathBuf::from(history_dir)
-            .join(format!("transcribe-rs-v2-history-{}.jsonl", safe_prompt_name));
+        let history_file = PathBuf::from(history_dir).join(format!(
+            "transcribe-rs-v2-history-{}.jsonl",
+            safe_prompt_name
+        ));
 
         Self {
             history_file,
@@ -220,7 +231,10 @@ impl ConversationHistory {
             writeln!(file, "{}", json)?;
         }
 
-        log(&format!("Pruned history file: {}", self.history_file.display()));
+        log(&format!(
+            "Pruned history file: {}",
+            self.history_file.display()
+        ));
 
         Ok(())
     }
@@ -345,6 +359,9 @@ mod tests {
     #[test]
     fn test_empty_prompt_name() {
         let history = ConversationHistory::new("", 5, 10, "/tmp");
-        assert!(history.history_file.to_string_lossy().contains("transcribe-rs-v2-history-default.jsonl"));
+        assert!(history
+            .history_file
+            .to_string_lossy()
+            .contains("transcribe-rs-v2-history-default.jsonl"));
     }
 }

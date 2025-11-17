@@ -17,6 +17,38 @@ fn log(message: &str) {
     }
 }
 
+/// Copy selected text to clipboard using ydotool (simulates Ctrl+C)
+/// This is used to capture highlighted text for LLM context
+pub fn copy_selection() -> Result<(), Box<dyn Error>> {
+    log("Copy selection operation starting...");
+
+    // Set ydotool socket path
+    let socket_path = "/tmp/.ydotool_socket";
+    std::env::set_var("YDOTOOL_SOCKET", socket_path);
+    log(&format!("Set YDOTOOL_SOCKET={}", socket_path));
+
+    // Simulate Ctrl+C
+    // Key codes: 29 = Left Ctrl, 46 = C
+    log("Simulating Ctrl+C to copy selection");
+    let exit_status = Command::new("ydotool")
+        .args(["key", "29:1", "46:1", "46:0", "29:0"])
+        .status()
+        .map_err(|e| {
+            log(&format!("ERROR: Failed to execute ydotool: {}", e));
+            e
+        })?;
+
+    log(&format!("ydotool exit status: {:?}", exit_status));
+
+    if !exit_status.success() {
+        log("ERROR: ydotool command failed");
+        return Err("ydotool command failed".into());
+    }
+
+    log("Copy selection completed successfully");
+    Ok(())
+}
+
 /// Paste from clipboard using ydotool
 /// Automatically detects if active window is a terminal and uses appropriate key combo
 pub fn paste_from_clipboard() -> Result<(), Box<dyn Error>> {

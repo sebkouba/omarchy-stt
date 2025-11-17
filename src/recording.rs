@@ -33,14 +33,23 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     // Check if already recording
     if Path::new(&config.recording_pid_file).exists() {
         let index = fs::read_to_string(&config.recording_pid_file)?;
-        log(&format!("WARNING: Already recording (start_index: {})", index.trim()), &config.log_file);
+        log(
+            &format!("WARNING: Already recording (start_index: {})", index.trim()),
+            &config.log_file,
+        );
         return Err("Already recording".into());
     }
 
     // Connect to daemon
-    log(&format!("Connecting to daemon at {}", DAEMON_SOCKET), &config.log_file);
+    log(
+        &format!("Connecting to daemon at {}", DAEMON_SOCKET),
+        &config.log_file,
+    );
     let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
-        log(&format!("ERROR: Failed to connect to recording daemon: {}", e), &config.log_file);
+        log(
+            &format!("ERROR: Failed to connect to recording daemon: {}", e),
+            &config.log_file,
+        );
         format!(
             "Failed to connect to recording daemon.\n\n\
             Is the daemon running?\n\
@@ -61,13 +70,19 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     let mut response_line = String::new();
     reader.read_line(&mut response_line)?;
 
-    log(&format!("Received response: {}", response_line.trim()), &config.log_file);
+    log(
+        &format!("Received response: {}", response_line.trim()),
+        &config.log_file,
+    );
 
     let response: serde_json::Value = serde_json::from_str(&response_line)?;
 
     if !response["ok"].as_bool().unwrap_or(false) {
         let error = response["error"].as_str().unwrap_or("Unknown error");
-        log(&format!("ERROR: Daemon returned error: {}", error), &config.log_file);
+        log(
+            &format!("ERROR: Daemon returned error: {}", error),
+            &config.log_file,
+        );
         return Err(error.into());
     }
 
@@ -77,7 +92,10 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
         .ok_or("Missing start_index in response")?;
     fs::write(&config.recording_pid_file, start_index.to_string())?;
 
-    log(&format!("Recording started at index: {}", start_index), &config.log_file);
+    log(
+        &format!("Recording started at index: {}", start_index),
+        &config.log_file,
+    );
     log("Recording started successfully", &config.log_file);
     Ok(())
 }
@@ -88,19 +106,31 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
 
     // Check if recording
     if !Path::new(&config.recording_pid_file).exists() {
-        log("WARNING: Not recording (index file not found)", &config.log_file);
+        log(
+            "WARNING: Not recording (index file not found)",
+            &config.log_file,
+        );
         return Err("Not recording".into());
     }
 
     // Read start_index from file
     let start_index_str = fs::read_to_string(&config.recording_pid_file)?;
     let start_index: u64 = start_index_str.trim().parse()?;
-    log(&format!("Stopping recording from index: {}", start_index), &config.log_file);
+    log(
+        &format!("Stopping recording from index: {}", start_index),
+        &config.log_file,
+    );
 
     // Connect to daemon
-    log(&format!("Connecting to daemon at {}", DAEMON_SOCKET), &config.log_file);
+    log(
+        &format!("Connecting to daemon at {}", DAEMON_SOCKET),
+        &config.log_file,
+    );
     let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
-        log(&format!("ERROR: Failed to connect to recording daemon: {}", e), &config.log_file);
+        log(
+            &format!("ERROR: Failed to connect to recording daemon: {}", e),
+            &config.log_file,
+        );
         // Clean up state file
         fs::remove_file(&config.recording_pid_file).ok();
         format!(
@@ -125,7 +155,10 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
     let mut response_line = String::new();
     reader.read_line(&mut response_line)?;
 
-    log(&format!("Received response: {}", response_line.trim()), &config.log_file);
+    log(
+        &format!("Received response: {}", response_line.trim()),
+        &config.log_file,
+    );
 
     let response: serde_json::Value = serde_json::from_str(&response_line)?;
 
@@ -135,7 +168,10 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
 
     if !response["ok"].as_bool().unwrap_or(false) {
         let error = response["error"].as_str().unwrap_or("Unknown error");
-        log(&format!("ERROR: Daemon returned error: {}", error), &config.log_file);
+        log(
+            &format!("ERROR: Daemon returned error: {}", error),
+            &config.log_file,
+        );
         return Err(error.into());
     }
 
@@ -147,20 +183,29 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
     let latency_ms = response["latency_ms"].as_u64().unwrap_or(0);
     let samples = response["samples"].as_u64().unwrap_or(0);
 
-    log(&format!(
-        "Recording stopped successfully: path={}, duration={:.2}s, latency={}ms, samples={}",
-        wav_path,
-        duration_ms as f64 / 1000.0,
-        latency_ms,
-        samples
-    ), &config.log_file);
+    log(
+        &format!(
+            "Recording stopped successfully: path={}, duration={:.2}s, latency={}ms, samples={}",
+            wav_path,
+            duration_ms as f64 / 1000.0,
+            latency_ms,
+            samples
+        ),
+        &config.log_file,
+    );
 
     // Validate file exists
     let file_size = fs::metadata(wav_path)?.len();
-    log(&format!("WAV file size: {} bytes", file_size), &config.log_file);
+    log(
+        &format!("WAV file size: {} bytes", file_size),
+        &config.log_file,
+    );
 
     if file_size < 1000 {
-        log(&format!("ERROR: WAV file too small ({} bytes)", file_size), &config.log_file);
+        log(
+            &format!("ERROR: WAV file too small ({} bytes)", file_size),
+            &config.log_file,
+        );
         return Err("WAV file too small - no audio data".into());
     }
 
@@ -206,6 +251,9 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response_line).unwrap();
         assert_eq!(response["ok"], true);
         println!("Daemon uptime: {}s", response["uptime_seconds"]);
-        println!("Buffer fullness: {:.1}%", response["buffer_fullness"].as_f64().unwrap_or(0.0) * 100.0);
+        println!(
+            "Buffer fullness: {:.1}%",
+            response["buffer_fullness"].as_f64().unwrap_or(0.0) * 100.0
+        );
     }
 }

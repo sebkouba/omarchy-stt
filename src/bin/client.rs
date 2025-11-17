@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use serde::{Deserialize, Serialize};
 use transcribe_rs::config::Config;
 
 #[derive(Debug, Serialize)]
@@ -33,7 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to daemon
     let stream = UnixStream::connect(socket_path).map_err(|e| {
-        eprintln!("❌ Failed to connect to transcribe daemon at {}", socket_path);
+        eprintln!(
+            "❌ Failed to connect to transcribe daemon at {}",
+            socket_path
+        );
         eprintln!("   Is the daemon running? Start it with: transcribe-daemon");
         e
     })?;

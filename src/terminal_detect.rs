@@ -51,12 +51,7 @@ mod tests {
     #[test]
     fn test_terminal_detection_logic() {
         // Test that we can identify known terminal strings
-        let terminal_apps = [
-            "alacritty",
-            "kitty",
-            "wezterm",
-            "foot",
-        ];
+        let terminal_apps = ["alacritty", "kitty", "wezterm", "foot"];
 
         for app in &terminal_apps {
             assert!(terminal_apps.iter().any(|term| app.contains(term)));

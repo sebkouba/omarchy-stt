@@ -17,9 +17,42 @@ fn log(message: &str) {
     }
 }
 
+/// Read text from system clipboard using wl-paste
+pub fn get_clipboard_content() -> Result<String, Box<dyn Error>> {
+    log("Reading clipboard content via wl-paste");
+
+    let output = Command::new("wl-paste")
+        .arg("--no-newline")
+        .output()
+        .map_err(|e| {
+            let err = format!(
+                "Failed to run wl-paste: {}\n\n\
+                Is wl-clipboard installed?\n\
+                  Check with: which wl-paste\n\
+                  Install with: sudo pacman -S wl-clipboard",
+                e
+            );
+            log(&format!("ERROR: wl-paste not found: {}", e));
+            err
+        })?;
+
+    if !output.status.success() {
+        // wl-paste can fail if clipboard is empty or contains non-text data
+        log("wl-paste failed (clipboard might be empty or contain non-text data)");
+        return Ok(String::new());
+    }
+
+    let content = String::from_utf8_lossy(&output.stdout).to_string();
+    log(&format!("Read {} bytes from clipboard", content.len()));
+    Ok(content)
+}
+
 /// Copy text to system clipboard using wl-copy
 pub fn copy_to_clipboard(text: &str) -> Result<(), Box<dyn Error>> {
-    log(&format!("Copying {} bytes to clipboard via wl-copy", text.len()));
+    log(&format!(
+        "Copying {} bytes to clipboard via wl-copy",
+        text.len()
+    ));
 
     let mut child = Command::new("wl-copy")
         .stdin(Stdio::piped())
@@ -31,7 +64,8 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), Box<dyn Error>> {
                   Check with: which wl-copy\n\
                   Install with: sudo pacman -S wl-clipboard\n\n\
                 Run system check:\n\
-                  transcribe doctor", e
+                  transcribe doctor",
+                e
             );
             log(&format!("ERROR: wl-copy not found: {}", e));
             err
@@ -40,21 +74,19 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), Box<dyn Error>> {
     log("wl-copy spawned, writing to stdin...");
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())
-            .map_err(|e| {
-                let err = format!("Failed to write to wl-copy stdin: {}", e);
-                log(&format!("ERROR: {}", err));
-                err
-            })?;
-    }
-
-    log("Waiting for wl-copy to complete...");
-    let status = child.wait()
-        .map_err(|e| {
-            let err = format!("Failed to wait for wl-copy: {}", e);
+        stdin.write_all(text.as_bytes()).map_err(|e| {
+            let err = format!("Failed to write to wl-copy stdin: {}", e);
             log(&format!("ERROR: {}", err));
             err
         })?;
+    }
+
+    log("Waiting for wl-copy to complete...");
+    let status = child.wait().map_err(|e| {
+        let err = format!("Failed to wait for wl-copy: {}", e);
+        log(&format!("ERROR: {}", err));
+        err
+    })?;
 
     if !status.success() {
         let err = format!("wl-copy exited with status: {}", status);
