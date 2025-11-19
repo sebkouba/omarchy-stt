@@ -151,23 +151,46 @@ impl GroqClient {
     /// # Returns
     /// CompletionResult with the processed text and whether a tool was called
     pub fn complete(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
+        self.complete_with_context(prompt, transcription, prompt_name, None)
+    }
+
+    /// Sends a completion request to Groq API with optional OCR screen context
+    ///
+    /// # Arguments
+    /// * `prompt` - The prompt/instructions from the .md file
+    /// * `transcription` - The transcribed text to process
+    /// * `prompt_name` - The name of the prompt (for conversation history tracking)
+    /// * `ocr_context` - Optional screen OCR text for additional context
+    ///
+    /// # Returns
+    /// CompletionResult with the processed text and whether a tool was called
+    pub fn complete_with_context(&self, prompt: &str, transcription: &str, prompt_name: &str, ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
         // Use tokio runtime to run async code
         let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async(prompt, transcription, prompt_name))
+        runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
     }
 
     /// Async version of complete with full tool calling support
     async fn complete_async(&self, prompt: &str, transcription: &str, prompt_name: &str) -> Result<CompletionResult, Box<dyn Error>> {
+        self.complete_async_with_context(prompt, transcription, prompt_name, None).await
+    }
+
+    /// Async version of complete with OCR context support
+    async fn complete_async_with_context(&self, prompt: &str, transcription: &str, prompt_name: &str, ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
         let config = crate::config::Config::load()?;
 
         // Build messages with or without history based on config
         let history_enabled = Self::is_history_enabled_for_prompt(&config.llm, prompt_name);
         log(&format!("Conversation history for prompt '{}': {}", prompt_name, if history_enabled { "ENABLED" } else { "DISABLED" }));
 
+        if let Some(ctx) = ocr_context {
+            log(&format!("OCR context provided: {} chars", ctx.len()));
+        }
+
         let mut messages = if history_enabled {
-            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm)?
+            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm, ocr_context)?
         } else {
-            self.build_messages_without_history(prompt, transcription)
+            self.build_messages_without_history(prompt, transcription, ocr_context)
         };
 
         // Convert ToolConfig to API Tool format
@@ -362,7 +385,17 @@ impl GroqClient {
     }
 
     /// Build messages without conversation history (legacy behavior)
-    fn build_messages_without_history(&self, prompt: &str, transcription: &str) -> Vec<Message> {
+    fn build_messages_without_history(&self, prompt: &str, transcription: &str, ocr_context: Option<&str>) -> Vec<Message> {
+        // Build user content with optional OCR context
+        let user_content = if let Some(ocr_text) = ocr_context {
+            format!(
+                "{}\n\nScreen context (OCR of active window):\n{}\n\nUser dictation:\n{}",
+                prompt, ocr_text, transcription
+            )
+        } else {
+            format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+        };
+
         vec![
             Message {
                 role: "system".to_string(),
@@ -373,7 +406,7 @@ impl GroqClient {
             },
             Message {
                 role: "user".to_string(),
-                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -382,7 +415,7 @@ impl GroqClient {
     }
 
     /// Build messages with conversation history
-    fn build_messages_with_history(&self, prompt: &str, transcription: &str, prompt_name: &str, llm_config: &crate::config::LlmConfig) -> Result<Vec<Message>, Box<dyn Error>> {
+    fn build_messages_with_history(&self, prompt: &str, transcription: &str, prompt_name: &str, llm_config: &crate::config::LlmConfig, ocr_context: Option<&str>) -> Result<Vec<Message>, Box<dyn Error>> {
         use crate::conversation_history::ConversationHistory;
 
         let history = ConversationHistory::new(
@@ -409,9 +442,20 @@ impl GroqClient {
         if history_messages.is_empty() {
             // First message in conversation - include prompt instructions
             log("No history found, starting new conversation");
+
+            // Build user content with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "{}\n\nScreen context (OCR of active window):\n{}\n\nUser dictation:\n{}",
+                    prompt, ocr_text, transcription
+                )
+            } else {
+                format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+            };
+
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -431,10 +475,19 @@ impl GroqClient {
                 });
             }
 
-            // Add new dictation (just the raw transcription, no prompt)
+            // Add new dictation with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "Screen context (OCR of active window):\n{}\n\nUser dictation:\n{}",
+                    ocr_text, transcription
+                )
+            } else {
+                transcription.to_string()
+            };
+
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(transcription.to_string()),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,

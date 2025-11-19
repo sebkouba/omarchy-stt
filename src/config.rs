@@ -18,6 +18,8 @@ pub struct Config {
     pub dictation_logging: DictationLoggingConfig,
     #[serde(default)]
     pub llm: LlmConfig,
+    #[serde(default)]
+    pub ocr: OcrConfig,
 }
 
 /// Audio recording configuration
@@ -109,6 +111,19 @@ pub struct LlmConfig {
     pub conversation_history_dir: String,
 }
 
+/// OCR configuration for screen context capture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OcrConfig {
+    /// Language code for Tesseract (e.g., "eng", "fra", "deu")
+    pub language: String,
+    /// DPI for OCR processing (higher = more accurate but slower)
+    pub dpi: u32,
+    /// Path for temporary screenshot storage
+    pub screenshot_path: String,
+    /// Path for OCR result storage
+    pub result_path: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -119,6 +134,7 @@ impl Default for Config {
             transcription_corrections: TranscriptionCorrectionsConfig::default(),
             dictation_logging: DictationLoggingConfig::default(),
             llm: LlmConfig::default(),
+            ocr: OcrConfig::default(),
         }
     }
 }
@@ -219,6 +235,17 @@ impl Default for LlmConfig {
             conversation_history_minutes: 5,
             conversation_max_turns: 10,
             conversation_history_dir: "/tmp".to_string(),
+        }
+    }
+}
+
+impl Default for OcrConfig {
+    fn default() -> Self {
+        OcrConfig {
+            language: "eng".to_string(),
+            dpi: 300,
+            screenshot_path: "/tmp/ptt_ocr_screenshot.png".to_string(),
+            result_path: "/tmp/ptt_ocr_result.txt".to_string(),
         }
     }
 }
