@@ -119,6 +119,12 @@ pub struct LlmConfig {
     /// If a prompt is not in this map, it defaults to no tools
     #[serde(default)]
     pub prompt_tool_mapping: HashMap<String, String>,
+    /// Enable file chat mode (write Q&A to markdown files instead of clipboard)
+    #[serde(default)]
+    pub file_chat_enabled: bool,
+    /// Directory where file chat markdown files are stored
+    #[serde(default)]
+    pub file_chat_dir: String,
 }
 
 /// OCR configuration for screen context capture
@@ -253,6 +259,10 @@ impl Default for LlmConfig {
         // Default: clean prompt gets all tools (for dictation with actions)
         prompt_tool_mapping.insert("clean".to_string(), "all".to_string());
 
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("transcribe-rs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
+
         LlmConfig {
             conversation_history_enabled: true,
             conversation_history_prompts: vec!["ask".to_string()], // Default to "ask" prompt only
@@ -262,6 +272,8 @@ impl Default for LlmConfig {
             conversation_history_dir: "/tmp".to_string(),
             tool_sets,
             prompt_tool_mapping,
+            file_chat_enabled: true,
+            file_chat_dir: config_dir.join("chats").to_string_lossy().to_string(),
         }
     }
 }

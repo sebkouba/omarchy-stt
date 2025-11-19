@@ -5,8 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
-    clipboard, config::Config, dictation_logger, logging, notifications, ocr, paste, performance_log,
-    recording, timing,
+    clipboard, config::Config, dictation_logger, file_chat, logging, notifications, ocr, paste,
+    performance_log, recording, timing,
 };
 
 #[derive(Parser)]
@@ -28,6 +28,9 @@ enum Commands {
         /// Capture screen OCR for context (requires tesseract)
         #[arg(long)]
         ocr: bool,
+        /// Write Q&A to markdown file instead of clipboard (requires --prompt)
+        #[arg(long)]
+        file_chat: bool,
     },
     /// Stop recording and transcribe
     Stop,
@@ -78,9 +81,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { prompt, ocr } => {
+        Commands::Start { prompt, ocr, file_chat } => {
             let config = Config::load()?;
-            handle_start(&config, prompt, ocr)
+            handle_start(&config, prompt, ocr, file_chat)
         }
         Commands::Stop => {
             let config = Config::load()?;
@@ -108,11 +111,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool) -> Result<(), Box<dyn Error>> {
+fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file_chat: bool) -> Result<(), Box<dyn Error>> {
     info!("=== HANDLE START ===");
 
     // Save prompt name to temp file for stop command
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
+    const FILE_CHAT_FLAG_FILE: &str = "/tmp/ptt_file_chat.flag";
+
     if let Some(prompt_name) = prompt {
         debug!("Saving prompt name: {}", prompt_name);
         fs::write(PROMPT_STATE_FILE, prompt_name)?;
@@ -139,6 +144,14 @@ fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool) -> R
     } else {
         // Remove OCR flag if not requested
         let _ = fs::remove_file(OCR_REQUESTED_FILE);
+    }
+
+    // Save file-chat flag
+    if file_chat {
+        debug!("File chat mode enabled");
+        fs::write(FILE_CHAT_FLAG_FILE, "1")?;
+    } else {
+        let _ = fs::remove_file(FILE_CHAT_FLAG_FILE);
     }
 
     debug!("Starting recording...");
@@ -290,8 +303,16 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     // Check if prompt-based post-processing is requested
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
+    const FILE_CHAT_FLAG_FILE: &str = "/tmp/ptt_file_chat.flag";
+
     let mut llm_processing_triggered = false;
     let mut tool_was_called = false;
+    let file_chat_mode = std::path::Path::new(FILE_CHAT_FLAG_FILE).exists();
+    if file_chat_mode {
+        log("File chat mode detected", &config.audio.log_file);
+        // Clean up flag file
+        let _ = fs::remove_file(FILE_CHAT_FLAG_FILE);
+    }
     let final_text = if let Ok(prompt_name) = fs::read_to_string(PROMPT_STATE_FILE) {
         let prompt_name = prompt_name.trim();
         if !prompt_name.is_empty() {
@@ -365,8 +386,42 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     };
     debug!("Final text: '{}'", text);
 
-    // If a tool was called, just show notification and skip paste
-    if tool_was_called {
+    // If file-chat mode, write to markdown file instead of clipboard
+    if file_chat_mode {
+        debug!("File chat mode - writing to markdown file");
+
+        // Check if file chat is enabled in config
+        if !config.llm.file_chat_enabled {
+            warn!("File chat is disabled in config");
+            notifications::notify_error("File chat is disabled in config").ok();
+        } else {
+            match file_chat::append_to_chat_file(
+                &config.llm.file_chat_dir,
+                &processed_text,  // User's question
+                &text,            // LLM's response
+            ) {
+                Ok(_) => {
+                    debug!("Successfully wrote to chat file");
+                    let preview = if text.len() > 50 {
+                        format!("{}...", &text[..50])
+                    } else {
+                        text.clone()
+                    };
+                    notifications::notify("📝 Chat saved", &preview, 3000).ok();
+                }
+                Err(e) => {
+                    error!("Failed to write chat file: {}", e);
+                    notifications::notify_error(&format!("Failed to write chat: {}", e)).ok();
+                }
+            }
+        }
+
+        if let Some(ref mut m) = metrics {
+            m.mark_clipboard_done();
+            m.mark_paste_done();
+        }
+    } else if tool_was_called {
+        // If a tool was called, just show notification and skip paste
         debug!("Tool called - skipping clipboard and paste, showing notification only");
         notifications::notify("✅ Tool executed", &text, 3000).ok();
 
