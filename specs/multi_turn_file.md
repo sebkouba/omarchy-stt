@@ -1,1 +1,5 @@
 I've currently implemented a feature that allows multi-turn conversation via my ask prompt. The result is simply put into the system clipboard and then pasted. That means I can ask a question and the result gets pasted to where my cursor is. I want to add a similar feature where I can ask a question, and then my question and the answer for that conversation, so for multiple sounds as well, should be written into a markdown file. So that it's persisted, and I can view it in any markdown viewer. It's a LLM chat interface that happens directly in a markdown file. Come up with a plan to implement this. I should be able to specify the path where these files are stored in my config. 
+
+I think I want to implement this as a CLI flag because then I can have another keyboard shortcut where I can just enable this. If you think there's a different architecture that makes more sense, let me know. I'm currently still building features to just try them out, so some of it might get yanked, but I'm realizing that this direct chat is useful and that I like to have it in a file, so that's where we're going with this. 
+
+Create a branch for us to work on with this feature. 
