@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
-    clipboard, config::Config, dictation_logger, logging, notifications, paste, performance_log,
+    clipboard, config::Config, dictation_logger, logging, notifications, ocr, paste, performance_log,
     recording, timing,
 };
 
@@ -25,6 +25,9 @@ enum Commands {
         /// Optional prompt name for LLM post-processing (e.g., "clean", "email")
         #[arg(short, long)]
         prompt: Option<String>,
+        /// Capture screen OCR for context (requires tesseract)
+        #[arg(long)]
+        ocr: bool,
     },
     /// Stop recording and transcribe
     Stop,
@@ -41,6 +44,18 @@ enum Commands {
     Client {
         /// Path to audio file
         file: PathBuf,
+    },
+    /// Internal: OCR worker process (do not call directly)
+    #[command(hide = true)]
+    OcrWorker {
+        /// Path to screenshot image
+        screenshot_path: String,
+        /// Path to write OCR result
+        result_path: String,
+        /// Tesseract language code
+        language: String,
+        /// OCR DPI setting
+        dpi: String,
     },
 }
 
@@ -63,9 +78,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { prompt } => {
+        Commands::Start { prompt, ocr } => {
             let config = Config::load()?;
-            handle_start(&config, prompt)
+            handle_start(&config, prompt, ocr)
         }
         Commands::Stop => {
             let config = Config::load()?;
@@ -85,10 +100,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("(Client integration will be added in Phase 3)");
             Ok(())
         }
+        Commands::OcrWorker { screenshot_path, result_path, language, dpi } => {
+            // Internal OCR worker process
+            let dpi_value: u32 = dpi.parse().unwrap_or(300);
+            ocr::run_ocr_worker(&screenshot_path, &result_path, &language, dpi_value)
+        }
     }
 }
 
-fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn Error>> {
+fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool) -> Result<(), Box<dyn Error>> {
     info!("=== HANDLE START ===");
 
     // Save prompt name to temp file for stop command
@@ -99,6 +119,26 @@ fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn E
     } else {
         // Remove prompt file if no prompt specified
         let _ = fs::remove_file(PROMPT_STATE_FILE);
+    }
+
+    // Handle OCR if enabled - spawn async worker
+    const OCR_REQUESTED_FILE: &str = "/tmp/ptt_ocr_requested.flag";
+    if ocr_enabled {
+        debug!("OCR requested, spawning async worker...");
+        match ocr::spawn_ocr_worker(&config.ocr) {
+            Ok(_) => {
+                debug!("OCR worker spawned successfully");
+                fs::write(OCR_REQUESTED_FILE, "")?;
+            }
+            Err(e) => {
+                warn!("OCR spawn failed: {}", e);
+                // Continue without OCR - don't fail the whole operation
+                let _ = fs::remove_file(OCR_REQUESTED_FILE);
+            }
+        }
+    } else {
+        // Remove OCR flag if not requested
+        let _ = fs::remove_file(OCR_REQUESTED_FILE);
     }
 
     debug!("Starting recording...");
@@ -220,6 +260,34 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     // Harper processing now happens in the daemon (via transcribe-client)
     // This eliminates the 300ms dictionary loading overhead on each transcription
 
+    // Check if OCR was requested and retrieve result
+    const OCR_REQUESTED_FILE: &str = "/tmp/ptt_ocr_requested.flag";
+    let ocr_context = if std::path::Path::new(OCR_REQUESTED_FILE).exists() {
+        log("OCR was requested, waiting for result...", &config.audio.log_file);
+        let _ = fs::remove_file(OCR_REQUESTED_FILE);
+
+        match ocr::wait_for_ocr_result(&config.ocr, std::time::Duration::from_secs(5)) {
+            Ok(Some(text)) => {
+                log(&format!("OCR context retrieved: {} chars", text.len()), &config.audio.log_file);
+                // Clean up OCR files
+                ocr::cleanup_ocr_files(&config.ocr);
+                Some(text)
+            }
+            Ok(None) => {
+                log("No OCR result available (timeout or not found)", &config.audio.log_file);
+                ocr::cleanup_ocr_files(&config.ocr);
+                None
+            }
+            Err(e) => {
+                log(&format!("OCR error: {}", e), &config.audio.log_file);
+                ocr::cleanup_ocr_files(&config.ocr);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Check if prompt-based post-processing is requested
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     let mut llm_processing_triggered = false;
@@ -256,7 +324,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                 }
             } else {
                 // Try to process with Groq API
-                match process_with_groq(&processed_text, prompt_name) {
+                match process_with_groq(&processed_text, prompt_name, ocr_context.as_deref()) {
                     Ok(result) => {
                         debug!("Groq processing successful: '{}'", result.text);
                         tool_was_called = result.tool_called;
@@ -468,6 +536,17 @@ fn handle_doctor() -> Result<(), Box<dyn Error>> {
 
     println!();
 
+    // Check OCR dependencies (optional)
+    println!("📷 OCR Dependencies (optional, for --ocr flag):");
+    let tesseract_ok = check_command("tesseract", "OCR text extraction");
+    let grim_ok = check_command("grim", "Screenshot capture");
+    if !tesseract_ok || !grim_ok {
+        println!("  ℹ️  OCR features require both tesseract and grim");
+        println!("     Install with: sudo pacman -S tesseract tesseract-data-eng grim");
+    }
+
+    println!();
+
     // Check configuration
     println!("⚙️  Configuration:");
     let config_path = Config::config_path()?;
@@ -620,6 +699,7 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
 fn process_with_groq(
     text: &str,
     prompt_name: &str,
+    ocr_context: Option<&str>,
 ) -> Result<transcribe_rs::groq::CompletionResult, Box<dyn Error>> {
     use transcribe_rs::{config::Config, groq, prompts};
 
@@ -668,7 +748,7 @@ fn process_with_groq(
     };
 
     debug!("Sending request to Groq API...");
-    let result = client.complete(&prompt, text, prompt_name)?;
+    let result = client.complete_with_context(&prompt, text, prompt_name, ocr_context)?;
 
     Ok(result)
 }

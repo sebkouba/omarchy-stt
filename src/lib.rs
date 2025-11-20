@@ -62,6 +62,7 @@ pub mod dictation_logger;
 pub mod groq;
 pub mod logging;
 pub mod notifications;
+pub mod ocr;
 pub mod paste;
 pub mod performance_log;
 pub mod prompts;

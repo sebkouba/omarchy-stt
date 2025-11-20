@@ -8,6 +8,7 @@ use std::fs;
 const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL: &str = "moonshotai/kimi-k2-instruct-0905";
 const MAX_TOOL_ITERATIONS: usize = 5;
+const OCR_CONTEXT_HEADER: &str = "Screen context from OCR (NOTE: This is raw OCR of the entire window including UI elements like toolbars, sidebars, status bars, and buttons. Extract only the meaningful document/content text when interpreting context)";
 
 /// Groq API client for LLM post-processing with tool calling support
 pub struct GroqClient {
@@ -164,9 +165,29 @@ impl GroqClient {
         transcription: &str,
         prompt_name: &str,
     ) -> Result<CompletionResult, Box<dyn Error>> {
+        self.complete_with_context(prompt, transcription, prompt_name, None)
+    }
+
+    /// Sends a completion request to Groq API with optional OCR screen context
+    ///
+    /// # Arguments
+    /// * `prompt` - The prompt/instructions from the .md file
+    /// * `transcription` - The transcribed text to process
+    /// * `prompt_name` - The name of the prompt (for conversation history tracking)
+    /// * `ocr_context` - Optional screen OCR text for additional context
+    ///
+    /// # Returns
+    /// CompletionResult with the processed text and whether a tool was called
+    pub fn complete_with_context(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        prompt_name: &str,
+        ocr_context: Option<&str>,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
         // Use tokio runtime to run async code
         let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async(prompt, transcription, prompt_name))
+        runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
     }
 
     /// Async version of complete with full tool calling support
@@ -175,6 +196,17 @@ impl GroqClient {
         prompt: &str,
         transcription: &str,
         prompt_name: &str,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
+        self.complete_async_with_context(prompt, transcription, prompt_name, None).await
+    }
+
+    /// Async version of complete with OCR context support
+    async fn complete_async_with_context(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        prompt_name: &str,
+        ocr_context: Option<&str>,
     ) -> Result<CompletionResult, Box<dyn Error>> {
         let config = crate::config::Config::load()?;
 
@@ -190,10 +222,14 @@ impl GroqClient {
             }
         );
 
+        if let Some(ctx) = ocr_context {
+            log(&format!("OCR context provided: {} chars", ctx.len()));
+        }
+
         let mut messages = if history_enabled {
-            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm)?
+            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm, ocr_context)?
         } else {
-            self.build_messages_without_history(prompt, transcription)
+            self.build_messages_without_history(prompt, transcription, ocr_context)
         };
 
         // Convert ToolConfig to API Tool format
@@ -428,7 +464,17 @@ impl GroqClient {
     }
 
     /// Build messages without conversation history (legacy behavior)
-    fn build_messages_without_history(&self, prompt: &str, transcription: &str) -> Vec<Message> {
+    fn build_messages_without_history(&self, prompt: &str, transcription: &str, ocr_context: Option<&str>) -> Vec<Message> {
+        // Build user content with optional OCR context
+        let user_content = if let Some(ocr_text) = ocr_context {
+            format!(
+                "{}\n\n{}:\n{}\n\nUser dictation:\n{}",
+                prompt, OCR_CONTEXT_HEADER, ocr_text, transcription
+            )
+        } else {
+            format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+        };
+
         vec![
             Message {
                 role: "system".to_string(),
@@ -439,10 +485,7 @@ impl GroqClient {
             },
             Message {
                 role: "user".to_string(),
-                content: Some(format!(
-                    "{}\n\nOriginal dictation:\n{}",
-                    prompt, transcription
-                )),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -457,6 +500,7 @@ impl GroqClient {
         transcription: &str,
         prompt_name: &str,
         llm_config: &crate::config::LlmConfig,
+        ocr_context: Option<&str>,
     ) -> Result<Vec<Message>, Box<dyn Error>> {
         use crate::conversation_history::ConversationHistory;
 
@@ -486,12 +530,20 @@ impl GroqClient {
         if history_messages.is_empty() {
             // First message in conversation - include prompt instructions
             debug!("No history found, starting new conversation");
+
+            // Build user content with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "{}\n\n{}:\n{}\n\nUser dictation:\n{}",
+                    prompt, OCR_CONTEXT_HEADER, ocr_text, transcription
+                )
+            } else {
+                format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+            };
+
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(format!(
-                    "{}\n\nOriginal dictation:\n{}",
-                    prompt, transcription
-                )),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
@@ -511,10 +563,19 @@ impl GroqClient {
                 });
             }
 
-            // Add new dictation (just the raw transcription, no prompt)
+            // Add new dictation with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "{}:\n{}\n\nUser dictation:\n{}",
+                    OCR_CONTEXT_HEADER, ocr_text, transcription
+                )
+            } else {
+                transcription.to_string()
+            };
+
             messages.push(Message {
                 role: "user".to_string(),
-                content: Some(transcription.to_string()),
+                content: Some(user_content),
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
