@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
     clipboard, config::Config, dictation_logger, file_chat,
-    gui::{ConversationState, ConversationWindow}, logging, notifications, ocr, paste,
-    performance_log, recording, timing,
+    gui::{is_window_running, recover_orphaned_conversation, ConversationState, ConversationWindow},
+    logging, notifications, ocr, paste, performance_log, recording, timing,
 };
 
 #[derive(Parser)]
@@ -211,6 +211,12 @@ fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file
     // Save GUI mode flag
     if gui_mode {
         debug!("GUI conversation mode enabled");
+
+        // Check for and recover any orphaned conversations from previous crashes
+        if let Err(e) = recover_orphaned_conversation() {
+            warn!("Failed to recover orphaned conversation: {}", e);
+        }
+
         fs::write(GUI_MODE_FLAG_FILE, "1")?;
 
         // GUI mode requires LLM processing, auto-set prompt if not specified
@@ -373,6 +379,11 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     const GUI_MODE_FLAG_FILE: &str = "/tmp/ptt_gui_mode.flag";
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     const FILE_CHAT_FLAG_FILE: &str = "/tmp/ptt_file_chat.flag";
+
+    // Check for and recover any orphaned conversations (e.g., from window crashes)
+    if let Err(e) = recover_orphaned_conversation(&config.audio.log_file) {
+        log(&format!("Warning: Failed to recover orphaned conversation: {}", e), &config.audio.log_file);
+    }
 
     let gui_mode = std::path::Path::new(GUI_MODE_FLAG_FILE).exists();
     if gui_mode {
@@ -990,13 +1001,8 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
     state.save_to_markdown()?;
     log("Saved conversation to markdown", log_file);
 
-    // Check if GUI window process is already running
-    let window_running = Command::new("pgrep")
-        .arg("-f")
-        .arg("transcribe.*gui-window")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false);
+    // Check if GUI window process is already running (using PID file)
+    let window_running = is_window_running();
 
     if window_running {
         log("GUI window already running, state file updated (window will auto-reload)", log_file);

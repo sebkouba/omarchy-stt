@@ -6,6 +6,70 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::path::PathBuf;
+use std::process::Command;
+use std::fs;
+
+const STATE_FILE_PATH: &str = "/tmp/transcribe-rs-conversation-state.json";
+const GUI_WINDOW_PID_FILE: &str = "/tmp/transcribe-rs-gui-window.pid";
+
+/// Check if the GUI window process is currently running
+pub fn is_window_running() -> bool {
+    if let Ok(pid_str) = fs::read_to_string(GUI_WINDOW_PID_FILE) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            // Use kill -0 to check if process exists (doesn't actually send a signal)
+            Command::new("kill")
+                .arg("-0")
+                .arg(pid.to_string())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+/// Recover orphaned conversation state from crashed window
+///
+/// If a conversation state file exists but no window is running,
+/// this saves the conversation to markdown and cleans up the state.
+pub fn recover_orphaned_conversation(log_file: &str) -> Result<(), Box<dyn Error>> {
+    if ConversationState::exists() && !is_window_running() {
+        eprintln!("[RECOVERY] Found orphaned conversation state, recovering...");
+
+        // Append to log file
+        if let Ok(mut file) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_file)
+        {
+            use std::io::Write;
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let _ = writeln!(file, "[{}] [recovery] Found orphaned conversation, recovering", timestamp);
+        }
+
+        let state = ConversationState::load()?;
+        state.save_to_markdown()?;
+        ConversationState::delete()?;
+
+        // Also clean up stale PID file if it exists
+        let _ = fs::remove_file(GUI_WINDOW_PID_FILE);
+
+        eprintln!("[RECOVERY] Saved conversation to markdown and cleaned up state");
+
+        // Notify user
+        if let Err(e) = crate::notifications::notify(
+            "💾 Conversation Recovered",
+            "Previous conversation saved to file",
+            3000
+        ) {
+            eprintln!("[RECOVERY] Failed to send notification: {}", e);
+        }
+    }
+    Ok(())
+}
 
 pub struct ConversationWindow {
     state: Arc<Mutex<ConversationState>>,
@@ -34,6 +98,13 @@ impl Drop for ConversationWindow {
         } else {
             eprintln!("[GUI-WINDOW] Deleted state file - conversation ended");
         }
+
+        // Remove PID file
+        if let Err(e) = fs::remove_file(GUI_WINDOW_PID_FILE) {
+            eprintln!("[GUI-WINDOW] Failed to remove PID file: {}", e);
+        } else {
+            eprintln!("[GUI-WINDOW] Removed PID file");
+        }
     }
 }
 
@@ -49,6 +120,11 @@ impl ConversationWindow {
 
         // Watch the state file
         watcher.watch(&state_file_path, RecursiveMode::NonRecursive)?;
+
+        // Write PID file to track this window process
+        let pid = std::process::id();
+        fs::write(GUI_WINDOW_PID_FILE, pid.to_string())?;
+        eprintln!("[GUI-WINDOW] Wrote PID file: {} (PID: {})", GUI_WINDOW_PID_FILE, pid);
 
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
