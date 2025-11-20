@@ -83,6 +83,9 @@ impl ConversationWindow {
 
 impl eframe::App for ConversationWindow {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Request repaint every 80ms to check for file changes (even when idle)
+        ctx.request_repaint_after(std::time::Duration::from_millis(80));
+
         // Check for file system events (non-blocking)
         while let Ok(event) = self.file_watcher_rx.try_recv() {
             match event {
