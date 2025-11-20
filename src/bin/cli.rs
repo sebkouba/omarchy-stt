@@ -5,7 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
-    clipboard, config::Config, dictation_logger, file_chat, logging, notifications, ocr, paste,
+    clipboard, config::Config, dictation_logger, file_chat,
+    gui::{ConversationState, ConversationWindow}, logging, notifications, ocr, paste,
     performance_log, recording, timing,
 };
 
@@ -31,6 +32,9 @@ enum Commands {
         /// Write Q&A to markdown file instead of clipboard (requires --prompt)
         #[arg(long)]
         file_chat: bool,
+        /// Open GUI conversation window for back-and-forth chat
+        #[arg(long)]
+        gui: bool,
     },
     /// Stop recording and transcribe
     Stop,
@@ -60,6 +64,9 @@ enum Commands {
         /// OCR DPI setting
         dpi: String,
     },
+    /// Internal: GUI conversation window process (do not call directly)
+    #[command(hide = true)]
+    GuiWindow,
 }
 
 #[derive(Subcommand)]
@@ -72,6 +79,45 @@ enum ConfigCommands {
     Path,
 }
 
+/// Handle the GUI window process (runs the window with file watching)
+fn handle_gui_window() -> Result<(), Box<dyn Error>> {
+    // This function runs in a separate process, launched by process_gui_conversation
+    // It blocks until the window is closed
+
+    eprintln!("[GUI-WINDOW] Starting GUI window process...");
+
+    // Load the conversation state
+    let state = if ConversationState::exists() {
+        eprintln!("[GUI-WINDOW] Loading conversation state...");
+        match ConversationState::load() {
+            Ok(s) => {
+                eprintln!("[GUI-WINDOW] Loaded state with {} messages", s.messages.len());
+                s
+            }
+            Err(e) => {
+                eprintln!("[GUI-WINDOW] ERROR: Failed to load state: {}", e);
+                return Err(e);
+            }
+        }
+    } else {
+        eprintln!("[GUI-WINDOW] ERROR: Conversation state file not found");
+        return Err("Conversation state file not found".into());
+    };
+
+    // Run the window (blocking)
+    eprintln!("[GUI-WINDOW] Running window...");
+    match ConversationWindow::run(state) {
+        Ok(_) => {
+            eprintln!("[GUI-WINDOW] Window closed normally");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[GUI-WINDOW] ERROR: Window failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     // Initialize logging (loads from config file or uses defaults)
     if let Err(e) = logging::init() {
@@ -81,9 +127,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { prompt, ocr, file_chat } => {
+        Commands::Start { prompt, ocr, file_chat, gui } => {
             let config = Config::load()?;
-            handle_start(&config, prompt, ocr, file_chat)
+            handle_start(&config, prompt, ocr, file_chat, gui)
         }
         Commands::Stop => {
             let config = Config::load()?;
@@ -108,23 +154,31 @@ fn main() -> Result<(), Box<dyn Error>> {
             let dpi_value: u32 = dpi.parse().unwrap_or(300);
             ocr::run_ocr_worker(&screenshot_path, &result_path, &language, dpi_value)
         }
+        Commands::GuiWindow => {
+            // Internal GUI window process - runs the conversation window with file watching
+            handle_gui_window()
+        }
     }
 }
 
-fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file_chat: bool) -> Result<(), Box<dyn Error>> {
+fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file_chat: bool, gui_mode: bool) -> Result<(), Box<dyn Error>> {
     info!("=== HANDLE START ===");
 
     // Save prompt name to temp file for stop command
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     const FILE_CHAT_FLAG_FILE: &str = "/tmp/ptt_file_chat.flag";
+    const GUI_MODE_FLAG_FILE: &str = "/tmp/ptt_gui_mode.flag";
 
-    if let Some(prompt_name) = prompt {
+    // Handle prompt state
+    let prompt_was_set = if let Some(ref prompt_name) = prompt {
         debug!("Saving prompt name: {}", prompt_name);
         fs::write(PROMPT_STATE_FILE, prompt_name)?;
+        true
     } else {
         // Remove prompt file if no prompt specified
         let _ = fs::remove_file(PROMPT_STATE_FILE);
-    }
+        false
+    };
 
     // Handle OCR if enabled - spawn async worker
     const OCR_REQUESTED_FILE: &str = "/tmp/ptt_ocr_requested.flag";
@@ -152,6 +206,20 @@ fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file
         fs::write(FILE_CHAT_FLAG_FILE, "1")?;
     } else {
         let _ = fs::remove_file(FILE_CHAT_FLAG_FILE);
+    }
+
+    // Save GUI mode flag
+    if gui_mode {
+        debug!("GUI conversation mode enabled");
+        fs::write(GUI_MODE_FLAG_FILE, "1")?;
+
+        // GUI mode requires LLM processing, auto-set prompt if not specified
+        if !prompt_was_set {
+            debug!("GUI mode: auto-setting default prompt 'chat'");
+            fs::write(PROMPT_STATE_FILE, "chat")?;
+        }
+    } else {
+        let _ = fs::remove_file(GUI_MODE_FLAG_FILE);
     }
 
     debug!("Starting recording...");
@@ -301,10 +369,47 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         None
     };
 
-    // Check if prompt-based post-processing is requested
+    // Check for GUI conversation mode FIRST (before other LLM processing)
+    const GUI_MODE_FLAG_FILE: &str = "/tmp/ptt_gui_mode.flag";
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     const FILE_CHAT_FLAG_FILE: &str = "/tmp/ptt_file_chat.flag";
 
+    let gui_mode = std::path::Path::new(GUI_MODE_FLAG_FILE).exists();
+    if gui_mode {
+        log("GUI conversation mode detected", &config.audio.log_file);
+        let _ = fs::remove_file(GUI_MODE_FLAG_FILE);
+
+        // Get prompt name for LLM processing
+        let prompt_name = if let Ok(name) = fs::read_to_string(PROMPT_STATE_FILE) {
+            let _ = fs::remove_file(PROMPT_STATE_FILE);
+            name.trim().to_string()
+        } else {
+            "chat".to_string()
+        };
+
+        // Process GUI conversation with context
+        match process_gui_conversation(&processed_text, &prompt_name, ocr_context.as_deref(), &config.audio.log_file) {
+            Ok(_) => {
+                log("GUI conversation processed successfully", &config.audio.log_file);
+            }
+            Err(e) => {
+                log(&format!("ERROR: GUI conversation failed: {}", e), &config.audio.log_file);
+                notifications::notify_error(&format!("GUI conversation failed: {}", e)).ok();
+            }
+        }
+
+        // Skip clipboard/paste/file-chat for GUI mode
+        if let Some(ref mut m) = metrics {
+            m.mark_processing_done();
+            m.mark_clipboard_done();
+            m.mark_paste_done();
+        }
+
+        log("=== HANDLE STOP COMPLETE (GUI MODE) ===", &config.audio.log_file);
+        return Ok(());
+    }
+
+    // Normal (non-GUI) flow continues below
     let mut llm_processing_triggered = false;
     let mut tool_was_called = false;
     let file_chat_mode = std::path::Path::new(FILE_CHAT_FLAG_FILE).exists();
@@ -806,6 +911,156 @@ fn process_with_groq(
     let result = client.complete_with_context(&prompt, text, prompt_name, ocr_context)?;
 
     Ok(result)
+}
+
+/// Process a GUI conversation with full context
+fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Option<&str>, log_file: &str) -> Result<(), Box<dyn Error>> {
+    use transcribe_rs::{groq, prompts, config::Config};
+
+    log("Processing GUI conversation with context", log_file);
+
+    // Load or create conversation state
+    let mut state = if ConversationState::exists() {
+        log("Loading existing GUI conversation state", log_file);
+        ConversationState::load()?
+    } else {
+        log("Creating new GUI conversation state", log_file);
+        // Create new conversation with timestamped filename
+        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let config_dir = dirs::config_dir()
+            .ok_or("Could not find config directory")?
+            .join("transcribe-rs")
+            .join("conversations");
+        fs::create_dir_all(&config_dir)?;
+        let conversation_file = config_dir.join(format!("conversation_{}.md", timestamp));
+        log(&format!("New conversation file: {:?}", conversation_file), log_file);
+        ConversationState::new(conversation_file)
+    };
+
+    log(&format!("Loaded conversation with {} messages", state.messages.len()), log_file);
+
+    // Get conversation context for LLM
+    let conversation_context = state.get_context_for_llm();
+    log(&format!("Conversation context: {} message pairs", conversation_context.len()), log_file);
+
+    // Load prompt
+    log(&format!("Loading prompt: {}", prompt_name), log_file);
+    let prompt = prompts::load_prompt(prompt_name)?;
+
+    // Load config to determine which tools to use for this prompt
+    let config = Config::load()?;
+
+    // Look up the tool set for this prompt
+    let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
+        log(&format!("Prompt '{}' mapped to tool set '{}'", prompt_name, tool_set_name), log_file);
+
+        // Look up the tool names for this tool set
+        if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
+            if tool_names.is_empty() {
+                log("Tool set is empty, creating client with no tools", log_file);
+                groq::GroqClient::from_env_file_no_tools()?
+            } else {
+                log(&format!("Tool set contains {} tools, loading them", tool_names.len()), log_file);
+                groq::GroqClient::from_env_file_with_tool_set(tool_names.clone())?
+            }
+        } else {
+            log(&format!("Warning: Tool set '{}' not found, using no tools", tool_set_name), log_file);
+            groq::GroqClient::from_env_file_no_tools()?
+        }
+    } else {
+        log(&format!("Prompt '{}' not in tool mapping, using no tools", prompt_name), log_file);
+        groq::GroqClient::from_env_file_no_tools()?
+    };
+
+    // Call Groq with conversation context using a special method
+    log("Calling Groq API with GUI conversation context...", log_file);
+    let result = client.complete_with_history(&prompt, user_text, &conversation_context, ocr_context)?;
+    log(&format!("LLM response: '{}'", result.text), log_file);
+
+    // Add new messages to state
+    state.add_message("user", user_text.to_string());
+    state.add_message("assistant", result.text.clone());
+
+    // Save state
+    state.window_open = true;
+    state.save()?;
+    log("Saved updated conversation state", log_file);
+
+    // Save to markdown file
+    state.save_to_markdown()?;
+    log("Saved conversation to markdown", log_file);
+
+    // Check if GUI window process is already running
+    let window_running = Command::new("pgrep")
+        .arg("-f")
+        .arg("transcribe.*gui-window")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+
+    if window_running {
+        log("GUI window already running, state file updated (window will auto-reload)", log_file);
+    } else {
+        log("Spawning GUI window process...", log_file);
+
+        // Get current executable path
+        let current_exe = std::env::current_exe()?;
+
+        // Spawn window process (non-blocking)
+        Command::new(&current_exe)
+            .arg("gui-window")  // Hidden command
+            .spawn()?;
+
+        log("GUI window process spawned successfully", log_file);
+    }
+
+    Ok(())
+}
+
+/// Handle GUI conversation mode - show egui window with conversation
+fn handle_gui_conversation(user_text: &str, assistant_text: &str, log_file: &str) -> Result<(), Box<dyn Error>> {
+    log("Handling GUI conversation mode", log_file);
+
+    // Load or create conversation state
+    let mut state = if ConversationState::exists() {
+        log("Loading existing conversation state", log_file);
+        ConversationState::load()?
+    } else {
+        log("Creating new conversation state", log_file);
+        // Create new conversation with timestamped filename
+        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let config_dir = dirs::config_dir()
+            .ok_or("Could not find config directory")?
+            .join("transcribe-rs")
+            .join("conversations");
+        fs::create_dir_all(&config_dir)?;
+        let conversation_file = config_dir.join(format!("conversation_{}.md", timestamp));
+        log(&format!("Conversation file: {:?}", conversation_file), log_file);
+        ConversationState::new(conversation_file)
+    };
+
+    // Add new messages
+    state.add_message("user", user_text.to_string());
+    state.add_message("assistant", assistant_text.to_string());
+
+    // Save state for window to read
+    state.window_open = true;
+    state.save()?;
+    log("Saved conversation state", log_file);
+
+    // Save to markdown file
+    state.save_to_markdown()?;
+    log("Saved conversation to markdown", log_file);
+
+    // Launch or update GUI window (blocking call)
+    log("Launching GUI window...", log_file);
+    if let Err(e) = ConversationWindow::run(state) {
+        log(&format!("GUI window error: {}", e), log_file);
+        return Err(e);
+    }
+
+    log("GUI window closed", log_file);
+    Ok(())
 }
 
 /// Call the transcribe-client binary to transcribe a file

@@ -190,6 +190,22 @@ impl GroqClient {
         runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
     }
 
+    /// Complete with explicit conversation history (for GUI conversations)
+    ///
+    /// # Arguments
+    /// * `prompt` - The system prompt
+    /// * `transcription` - The current user message
+    /// * `conversation_history` - Slice of (role, content) tuples representing conversation history
+    /// * `ocr_context` - Optional OCR context
+    ///
+    /// # Returns
+    /// CompletionResult with the processed text and whether a tool was called
+    pub fn complete_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
+        // Use tokio runtime to run async code
+        let runtime = tokio::runtime::Runtime::new()?;
+        runtime.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+    }
+
     /// Async version of complete with full tool calling support
     async fn complete_async(
         &self,
@@ -198,6 +214,116 @@ impl GroqClient {
         prompt_name: &str,
     ) -> Result<CompletionResult, Box<dyn Error>> {
         self.complete_async_with_context(prompt, transcription, prompt_name, None).await
+    }
+
+    /// Async version with explicit conversation history (for GUI conversations)
+    async fn complete_async_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
+        log("Building messages from explicit conversation history");
+        log(&format!("History contains {} message pairs", conversation_history.len()));
+
+        let mut messages = self.build_messages_from_history(prompt, transcription, conversation_history, ocr_context);
+
+        // Convert ToolConfig to API Tool format
+        let tools = if !self.tools.is_empty() {
+            Some(self.create_tools_from_config())
+        } else {
+            None
+        };
+
+        // Tool calling loop - iterate until finish_reason is not "tool_calls"
+        let mut tool_was_called = false;
+
+        for iteration in 0..MAX_TOOL_ITERATIONS {
+            let request = ApiRequest {
+                model: MODEL.to_string(),
+                messages: messages.clone(),
+                temperature: 0.3,
+                max_completion_tokens: 4096,
+                top_p: 1.0,
+                tools: tools.clone(),
+                tool_choice: if tools.is_some() { Some("auto".to_string()) } else { None },
+            };
+
+            // Log the request for debugging
+            log(&format!("=== Iteration {} ===", iteration));
+            if let Ok(request_json) = serde_json::to_string_pretty(&request) {
+                log(&format!("Request JSON:\n{}", request_json));
+            }
+
+            let response = self.http_client
+                .post(GROQ_API_URL)
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&request)
+                .send()
+                .await?;
+
+            let response_text = response.text().await?;
+            log(&format!("Response text: {}", response_text));
+
+            let api_response: ApiResponse = serde_json::from_str(&response_text)
+                .map_err(|e| format!("Failed to parse response: {} | Response: {}", e, response_text))?;
+
+            let choice = api_response
+                .choices
+                .first()
+                .ok_or("No response from Groq API")?;
+
+            let finish_reason = choice.finish_reason.clone();
+            log(&format!("finish_reason: {:?}", finish_reason));
+
+            // Check finish_reason to see if model wants to call tools
+            if finish_reason.as_deref() == Some("tool_calls") {
+                log("Model returned finish_reason='tool_calls' - executing tools");
+
+                // Mark that a tool was called
+                tool_was_called = true;
+
+                // Model wants to call tools - append the assistant message
+                messages.push(choice.message.clone());
+
+                // Execute each tool call
+                if let Some(tool_calls) = &choice.message.tool_calls {
+                    log(&format!("Found {} tool call(s)", tool_calls.len()));
+
+                    for tool_call in tool_calls {
+                        let function_name = &tool_call.function.name;
+                        let function_args = &tool_call.function.arguments;
+
+                        log(&format!("Executing tool: {} with args: {}", function_name, function_args));
+
+                        // Execute the tool
+                        let result = self.execute_tool(function_name, function_args).await?;
+                        log(&format!("Tool result: {:?}", result));
+
+                        // Add tool result to messages
+                        messages.push(Message {
+                            role: "tool".to_string(),
+                            content: Some(result.message.clone()),
+                            tool_calls: None,
+                            tool_call_id: Some(tool_call.id.clone()),
+                            name: Some(function_name.clone()),
+                        });
+                    }
+                } else {
+                    log("WARNING: finish_reason was 'tool_calls' but no tool_calls found");
+                    break;
+                }
+            } else {
+                // Model returned a final response
+                let content = choice.message.content.as_ref()
+                    .ok_or("No content in response")?;
+
+                log(&format!("Model returned final response: {}", content));
+
+                return Ok(CompletionResult {
+                    text: content.clone(),
+                    tool_called: tool_was_called,
+                });
+            }
+        }
+
+        Err(format!("Reached maximum tool call iterations ({})", MAX_TOOL_ITERATIONS).into())
     }
 
     /// Async version of complete with OCR context support
@@ -583,6 +709,89 @@ impl GroqClient {
         }
 
         Ok(messages)
+    }
+
+    /// Build messages from explicit conversation history (for GUI conversations)
+    fn build_messages_from_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Vec<Message> {
+        let mut messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            }
+        ];
+
+        if conversation_history.is_empty() {
+            // First message in conversation - include prompt instructions
+            log("No conversation history, starting new conversation");
+
+            // Build user content with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "{}\n\n{}:\n{}\n\nUser dictation:\n{}",
+                    prompt, OCR_CONTEXT_HEADER, ocr_text, transcription
+                )
+            } else {
+                format!("{}\n\nOriginal dictation:\n{}", prompt, transcription)
+            };
+
+            messages.push(Message {
+                role: "user".to_string(),
+                content: Some(user_content),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+        } else {
+            // Continuing conversation - include prompt in first user message, then add history
+            log(&format!("Building messages from {} existing messages", conversation_history.len()));
+
+            // Process conversation history - first user message gets prompt prefix
+            for (idx, (role, content)) in conversation_history.iter().enumerate() {
+                if idx == 0 && role == "user" {
+                    // First user message includes the prompt
+                    let user_content = format!("{}\n\nOriginal dictation:\n{}", prompt, content);
+                    messages.push(Message {
+                        role: "user".to_string(),
+                        content: Some(user_content),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                    });
+                } else {
+                    // All other messages as-is
+                    messages.push(Message {
+                        role: role.clone(),
+                        content: Some(content.clone()),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        name: None,
+                    });
+                }
+            }
+
+            // Add new dictation with optional OCR context
+            let user_content = if let Some(ocr_text) = ocr_context {
+                format!(
+                    "{}:\n{}\n\nUser dictation:\n{}",
+                    OCR_CONTEXT_HEADER, ocr_text, transcription
+                )
+            } else {
+                transcription.to_string()
+            };
+
+            messages.push(Message {
+                role: "user".to_string(),
+                content: Some(user_content),
+                tool_calls: None,
+                tool_call_id: None,
+                name: None,
+            });
+        }
+
+        messages
     }
 
     /// Save conversation turn to history

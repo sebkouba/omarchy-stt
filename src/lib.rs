@@ -61,6 +61,7 @@ pub mod conversation_history;
 pub mod dictation_logger;
 pub mod file_chat;
 pub mod groq;
+pub mod gui;
 pub mod logging;
 pub mod notifications;
 pub mod ocr;
