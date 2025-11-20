@@ -15,6 +15,28 @@ pub struct ConversationWindow {
     should_close: bool,
 }
 
+impl Drop for ConversationWindow {
+    fn drop(&mut self) {
+        // This runs when the window process exits
+        eprintln!("[GUI-WINDOW] Drop called - cleaning up conversation state");
+
+        // Save final conversation to markdown
+        let state = self.state.lock().unwrap();
+        if let Err(e) = state.save_to_markdown() {
+            eprintln!("[GUI-WINDOW] Failed to save conversation on exit: {}", e);
+        } else {
+            eprintln!("[GUI-WINDOW] Saved conversation to markdown");
+        }
+
+        // Delete state file to signal conversation is over
+        if let Err(e) = ConversationState::delete() {
+            eprintln!("[GUI-WINDOW] Failed to delete state file on exit: {}", e);
+        } else {
+            eprintln!("[GUI-WINDOW] Deleted state file - conversation ended");
+        }
+    }
+}
+
 impl ConversationWindow {
     pub fn new(state: ConversationState) -> Result<Self, Box<dyn Error>> {
         let state_file_path = PathBuf::from("/tmp/transcribe-rs-conversation-state.json");
@@ -171,19 +193,9 @@ impl eframe::App for ConversationWindow {
             });
         });
 
-        // Close window if requested
+        // Close window if requested (Drop trait handles cleanup)
         if self.should_close {
-            // Save conversation to markdown before closing
-            let state = self.state.lock().unwrap();
-            if let Err(e) = state.save_to_markdown() {
-                eprintln!("Failed to save conversation: {}", e);
-            }
-
-            // Delete state file
-            if let Err(e) = ConversationState::delete() {
-                eprintln!("Failed to delete state file: {}", e);
-            }
-
+            eprintln!("[GUI-WINDOW] Closing window, Drop will handle cleanup...");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
