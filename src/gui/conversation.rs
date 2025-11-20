@@ -247,11 +247,49 @@ impl eframe::App for ConversationWindow {
 
                             ui.add_space(4.0);
 
-                            // Message content with word wrap
-                            ui.horizontal_wrapped(|ui| {
+                            // Message content with word wrap - clickable to copy
+                            let content_text = msg.content.clone();
+                            let response = ui.horizontal_wrapped(|ui| {
                                 ui.spacing_mut().item_spacing.x = 0.0;
-                                ui.label(egui::RichText::new(&msg.content).size(14.0));
-                            });
+                                ui.add(egui::Label::new(egui::RichText::new(&msg.content).size(14.0))
+                                    .sense(egui::Sense::click()))
+                            }).inner;
+
+                            // Handle click to copy
+                            if response.clicked() {
+                                eprintln!("[GUI-WINDOW] Message clicked, copying to clipboard...");
+
+                                // Copy to clipboard
+                                if let Err(e) = crate::clipboard::copy_to_clipboard(&content_text) {
+                                    eprintln!("[GUI-WINDOW] Failed to copy to clipboard: {}", e);
+                                    if let Err(e) = crate::notifications::notify_error(
+                                        &format!("Failed to copy: {}", e)
+                                    ) {
+                                        eprintln!("[GUI-WINDOW] Failed to send error notification: {}", e);
+                                    }
+                                } else {
+                                    eprintln!("[GUI-WINDOW] Copied to clipboard successfully");
+
+                                    // Show notification with preview (truncate if too long)
+                                    let preview = if content_text.len() > 100 {
+                                        format!("{}...", &content_text[..97])
+                                    } else {
+                                        content_text.clone()
+                                    };
+
+                                    if let Err(e) = crate::notifications::notify_transcription_copied(&preview) {
+                                        eprintln!("[GUI-WINDOW] Failed to send notification: {}", e);
+                                    }
+                                }
+
+                                // Change cursor to indicate clickable
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            // Show hover effect
+                            if response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
 
                             ui.add_space(8.0);
                             ui.separator();
@@ -265,7 +303,7 @@ impl eframe::App for ConversationWindow {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new("Press ESC or click outside to close • Window updates automatically")
+                    egui::RichText::new("Click any message to copy • ESC or click outside to close • Updates automatically")
                         .size(12.0)
                         .color(egui::Color32::GRAY),
                 );
