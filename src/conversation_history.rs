@@ -201,7 +201,7 @@ impl ConversationHistory {
             return Ok(());
         }
 
-        log("History file exceeded 1MB, pruning old entries");
+        debug!("History file exceeded 1MB, pruning old entries");
 
         // Read all entries
         let file = fs::File::open(&self.history_file)?;

@@ -3,6 +3,7 @@
 //! This module handles writing dictation Q&A pairs to markdown files,
 //! creating a persistent chat interface that can be viewed in any markdown viewer.
 
+use log::debug;
 use std::error::Error;
 use std::fs;
 use std::io::Write;
@@ -16,14 +17,13 @@ pub fn append_to_chat_file(
     output_dir: &str,
     user_text: &str,
     assistant_text: &str,
-    log_file: &str,
 ) -> Result<(), Box<dyn Error>> {
-    log("=== FILE CHAT APPEND ===", log_file);
+    debug!("=== FILE CHAT APPEND ===");
 
     // Ensure output directory exists
     let dir_path = Path::new(output_dir);
     if !dir_path.exists() {
-        log(&format!("Creating chat directory: {}", output_dir), log_file);
+        debug!("Creating chat directory: {}", output_dir);
         fs::create_dir_all(dir_path)?;
     }
 
@@ -31,7 +31,7 @@ pub fn append_to_chat_file(
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let file_path = dir_path.join(format!("{}.md", today));
 
-    log(&format!("Chat file: {}", file_path.display()), log_file);
+    debug!("Chat file: {}", file_path.display());
 
     // Generate timestamp for this entry
     let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
@@ -52,20 +52,8 @@ pub fn append_to_chat_file(
 
     file.write_all(entry.as_bytes())?;
 
-    log(&format!("Appended {} bytes to chat file", entry.len()), log_file);
-    log("=== FILE CHAT APPEND COMPLETE ===", log_file);
+    debug!("Appended {} bytes to chat file", entry.len());
+    debug!("=== FILE CHAT APPEND COMPLETE ===");
 
     Ok(())
-}
-
-/// Append a log message to the debug log
-fn log(message: &str, log_file: &str) {
-    if let Ok(mut file) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file)
-    {
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        writeln!(file, "[{}] [file_chat] {}", timestamp, message).ok();
-    }
 }

@@ -218,8 +218,8 @@ impl GroqClient {
 
     /// Async version with explicit conversation history (for GUI conversations)
     async fn complete_async_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
-        log("Building messages from explicit conversation history");
-        log(&format!("History contains {} message pairs", conversation_history.len()));
+        debug!("Building messages from explicit conversation history");
+        debug!("History contains {} message pairs", conversation_history.len());
 
         let mut messages = self.build_messages_from_history(prompt, transcription, conversation_history, ocr_context);
 
@@ -245,9 +245,9 @@ impl GroqClient {
             };
 
             // Log the request for debugging
-            log(&format!("=== Iteration {} ===", iteration));
+            debug!("=== Iteration {} ===", iteration);
             if let Ok(request_json) = serde_json::to_string_pretty(&request) {
-                log(&format!("Request JSON:\n{}", request_json));
+                debug!("Request JSON:\n{}", request_json);
             }
 
             let response = self.http_client
@@ -259,7 +259,7 @@ impl GroqClient {
                 .await?;
 
             let response_text = response.text().await?;
-            log(&format!("Response text: {}", response_text));
+            debug!("Response text: {}", response_text);
 
             let api_response: ApiResponse = serde_json::from_str(&response_text)
                 .map_err(|e| format!("Failed to parse response: {} | Response: {}", e, response_text))?;
@@ -270,11 +270,11 @@ impl GroqClient {
                 .ok_or("No response from Groq API")?;
 
             let finish_reason = choice.finish_reason.clone();
-            log(&format!("finish_reason: {:?}", finish_reason));
+            debug!("finish_reason: {:?}", finish_reason);
 
             // Check finish_reason to see if model wants to call tools
             if finish_reason.as_deref() == Some("tool_calls") {
-                log("Model returned finish_reason='tool_calls' - executing tools");
+                debug!("Model returned finish_reason='tool_calls' - executing tools");
 
                 // Mark that a tool was called
                 tool_was_called = true;
@@ -284,17 +284,17 @@ impl GroqClient {
 
                 // Execute each tool call
                 if let Some(tool_calls) = &choice.message.tool_calls {
-                    log(&format!("Found {} tool call(s)", tool_calls.len()));
+                    debug!("Found {} tool call(s)", tool_calls.len());
 
                     for tool_call in tool_calls {
                         let function_name = &tool_call.function.name;
                         let function_args = &tool_call.function.arguments;
 
-                        log(&format!("Executing tool: {} with args: {}", function_name, function_args));
+                        debug!("Executing tool: {} with args: {}", function_name, function_args);
 
                         // Execute the tool
                         let result = self.execute_tool(function_name, function_args).await?;
-                        log(&format!("Tool result: {:?}", result));
+                        debug!("Tool result: {:?}", result);
 
                         // Add tool result to messages
                         messages.push(Message {
@@ -306,7 +306,7 @@ impl GroqClient {
                         });
                     }
                 } else {
-                    log("WARNING: finish_reason was 'tool_calls' but no tool_calls found");
+                    warn!("finish_reason was 'tool_calls' but no tool_calls found");
                     break;
                 }
             } else {
@@ -314,7 +314,7 @@ impl GroqClient {
                 let content = choice.message.content.as_ref()
                     .ok_or("No content in response")?;
 
-                log(&format!("Model returned final response: {}", content));
+                debug!("Model returned final response: {}", content);
 
                 return Ok(CompletionResult {
                     text: content.clone(),
@@ -349,7 +349,7 @@ impl GroqClient {
         );
 
         if let Some(ctx) = ocr_context {
-            log(&format!("OCR context provided: {} chars", ctx.len()));
+            debug!("OCR context provided: {} chars", ctx.len());
         }
 
         let mut messages = if history_enabled {
@@ -725,7 +725,7 @@ impl GroqClient {
 
         if conversation_history.is_empty() {
             // First message in conversation - include prompt instructions
-            log("No conversation history, starting new conversation");
+            debug!("No conversation history, starting new conversation");
 
             // Build user content with optional OCR context
             let user_content = if let Some(ocr_text) = ocr_context {
@@ -746,7 +746,7 @@ impl GroqClient {
             });
         } else {
             // Continuing conversation - include prompt in first user message, then add history
-            log(&format!("Building messages from {} existing messages", conversation_history.len()));
+            debug!("Building messages from {} existing messages", conversation_history.len());
 
             // Process conversation history - first user message gets prompt prefix
             for (idx, (role, content)) in conversation_history.iter().enumerate() {

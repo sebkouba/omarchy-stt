@@ -1,5 +1,6 @@
 use super::state::ConversationState;
 use eframe::egui;
+use log::{debug, warn};
 use notify::{Watcher, RecursiveMode, Event};
 use std::error::Error;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -35,20 +36,9 @@ pub fn is_window_running() -> bool {
 ///
 /// If a conversation state file exists but no window is running,
 /// this saves the conversation to markdown and cleans up the state.
-pub fn recover_orphaned_conversation(log_file: &str) -> Result<(), Box<dyn Error>> {
+pub fn recover_orphaned_conversation() -> Result<(), Box<dyn Error>> {
     if ConversationState::exists() && !is_window_running() {
-        eprintln!("[RECOVERY] Found orphaned conversation state, recovering...");
-
-        // Append to log file
-        if let Ok(mut file) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_file)
-        {
-            use std::io::Write;
-            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-            let _ = writeln!(file, "[{}] [recovery] Found orphaned conversation, recovering", timestamp);
-        }
+        debug!("Found orphaned conversation state, recovering...");
 
         let state = ConversationState::load()?;
         state.save_to_markdown()?;
@@ -57,7 +47,7 @@ pub fn recover_orphaned_conversation(log_file: &str) -> Result<(), Box<dyn Error
         // Also clean up stale PID file if it exists
         let _ = fs::remove_file(GUI_WINDOW_PID_FILE);
 
-        eprintln!("[RECOVERY] Saved conversation to markdown and cleaned up state");
+        debug!("Saved conversation to markdown and cleaned up state");
 
         // Notify user
         if let Err(e) = crate::notifications::notify(
@@ -65,7 +55,7 @@ pub fn recover_orphaned_conversation(log_file: &str) -> Result<(), Box<dyn Error
             "Previous conversation saved to file",
             3000
         ) {
-            eprintln!("[RECOVERY] Failed to send notification: {}", e);
+            warn!("Failed to send recovery notification: {}", e);
         }
     }
     Ok(())
