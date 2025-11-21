@@ -75,10 +75,7 @@ pub fn log_basic_dictation(
     // Check if file exists to determine if we need to write headers
     let needs_header = !path.exists();
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
     // Write header if this is a new file
     if needs_header {
@@ -88,7 +85,11 @@ pub fn log_basic_dictation(
     // Write the log entry
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
     let escaped_text = csv_escape(text);
-    writeln!(file, "{},{},{:.3}", timestamp, escaped_text, duration_seconds)?;
+    writeln!(
+        file,
+        "{},{},{:.3}",
+        timestamp, escaped_text, duration_seconds
+    )?;
 
     Ok(())
 }
@@ -122,14 +123,14 @@ pub fn log_llm_correction(
     // Check if file exists to determine if we need to write headers
     let needs_header = !path.exists();
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
     // Write header if this is a new file
     if needs_header {
-        writeln!(file, "timestamp,correction_occurred,original_text,corrected_text,diff,duration_seconds")?;
+        writeln!(
+            file,
+            "timestamp,correction_occurred,original_text,corrected_text,diff,duration_seconds"
+        )?;
     }
 
     // Determine if correction occurred
@@ -224,7 +225,10 @@ mod tests {
         let lines: Vec<&str> = content.lines().collect();
 
         assert_eq!(lines.len(), 3); // Header + 2 entries
-        assert_eq!(lines[0], "timestamp,correction_occurred,original_text,corrected_text,diff,duration_seconds");
+        assert_eq!(
+            lines[0],
+            "timestamp,correction_occurred,original_text,corrected_text,diff,duration_seconds"
+        );
         assert!(lines[1].contains(",Y,"));
         assert!(lines[1].contains("teh test"));
         assert!(lines[1].contains("the test"));

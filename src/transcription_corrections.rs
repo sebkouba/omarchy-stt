@@ -43,11 +43,11 @@ pub struct CorrectionRule {
 }
 
 fn default_fuzzy_matching() -> bool {
-    true  // Enable fuzzy matching by default
+    true // Enable fuzzy matching by default
 }
 
 fn default_threshold() -> f64 {
-    0.85  // 85% similarity
+    0.85 // 85% similarity
 }
 
 /// A match found in the text
@@ -55,7 +55,7 @@ fn default_threshold() -> f64 {
 struct FuzzyMatch {
     start: usize,
     end: usize,
-    _similarity: f64,  // Stored for potential future debugging/logging
+    _similarity: f64, // Stored for potential future debugging/logging
 }
 
 /// Word with position tracking
@@ -182,7 +182,7 @@ impl TranscriptionCorrector {
 
             // Adjust threshold for short strings
             let effective_threshold = if rule.from.len() < 4 {
-                0.95  // Very strict for short strings like "HiQ"
+                0.95 // Very strict for short strings like "HiQ"
             } else {
                 rule.similarity_threshold
             };
@@ -196,7 +196,8 @@ impl TranscriptionCorrector {
             }
 
             // Compute similarity
-            let similarity = self.compute_similarity(window, &pattern_words, &algorithm, rule.case_sensitive);
+            let similarity =
+                self.compute_similarity(window, &pattern_words, &algorithm, rule.case_sensitive);
 
             if similarity >= effective_threshold {
                 matches.push(FuzzyMatch {
@@ -346,7 +347,9 @@ mod tests {
     #[test]
     fn test_fuzzy_matching_name() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[
+        writeln!(
+            file,
+            r#"[
             {{
                 "from": "Sebastian Tuba",
                 "to": "Sebastian Kouba",
@@ -355,7 +358,9 @@ mod tests {
                 "similarity_threshold": 0.85,
                 "algorithm": "JaroWinkler"
             }}
-        ]"#).unwrap();
+        ]"#
+        )
+        .unwrap();
 
         let corrector = TranscriptionCorrector::from_file(file.path()).unwrap();
 
@@ -377,7 +382,9 @@ mod tests {
     #[test]
     fn test_fuzzy_no_false_positives() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[
+        writeln!(
+            file,
+            r#"[
             {{
                 "from": "Sebastian Tuba",
                 "to": "Sebastian Kouba",
@@ -386,7 +393,9 @@ mod tests {
                 "similarity_threshold": 0.85,
                 "algorithm": "JaroWinkler"
             }}
-        ]"#).unwrap();
+        ]"#
+        )
+        .unwrap();
 
         let corrector = TranscriptionCorrector::from_file(file.path()).unwrap();
 
@@ -398,14 +407,18 @@ mod tests {
     #[test]
     fn test_literal_matching_still_works() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[
+        writeln!(
+            file,
+            r#"[
             {{
                 "from": "Hay Q",
                 "to": "HiQ",
                 "case_sensitive": false,
                 "fuzzy_matching": false
             }}
-        ]"#).unwrap();
+        ]"#
+        )
+        .unwrap();
 
         let corrector = TranscriptionCorrector::from_file(file.path()).unwrap();
 
@@ -419,7 +432,9 @@ mod tests {
     #[test]
     fn test_short_string_high_threshold() {
         let mut file = NamedTempFile::new().unwrap();
-        writeln!(file, r#"[
+        writeln!(
+            file,
+            r#"[
             {{
                 "from": "Hi",
                 "to": "HiQ",
@@ -427,7 +442,9 @@ mod tests {
                 "fuzzy_matching": true,
                 "similarity_threshold": 0.70
             }}
-        ]"#).unwrap();
+        ]"#
+        )
+        .unwrap();
 
         let corrector = TranscriptionCorrector::from_file(file.path()).unwrap();
 

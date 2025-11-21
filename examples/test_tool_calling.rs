@@ -1,5 +1,5 @@
-use transcribe_rs::groq::GroqClient;
 use std::error::Error;
+use transcribe_rs::groq::GroqClient;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("=== Kimi K2 Tool Calling Test ===\n");

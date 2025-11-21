@@ -1,6 +1,6 @@
-use transcribe_rs::groq::GroqClient;
 use std::error::Error;
 use std::fs;
+use transcribe_rs::groq::GroqClient;
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("=== Testing FIXED Prompt ===\n");
@@ -23,7 +23,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("--- Test 2: Regular Dictation (should clean text) ---");
-    match client.complete(&fixed_prompt, "um so like I think we should uh focus on the API", "test") {
+    match client.complete(
+        &fixed_prompt,
+        "um so like I think we should uh focus on the API",
+        "test",
+    ) {
         Ok(result) => {
             println!("✅ Response: {}", result.text);
             println!("Tool called: {}\n", result.tool_called);

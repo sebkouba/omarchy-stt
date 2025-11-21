@@ -4,8 +4,7 @@ use std::path::PathBuf;
 
 /// Get the prompts directory path (~/.config/transcribe-rs/prompts)
 pub fn prompts_dir() -> Result<PathBuf, Box<dyn Error>> {
-    let config_dir = dirs::config_dir()
-        .ok_or("Could not find config directory")?;
+    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?;
     Ok(config_dir.join("transcribe-rs").join("prompts"))
 }
 

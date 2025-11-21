@@ -141,7 +141,7 @@ pub fn write_wav_from_samples(
     // Write fmt chunk (24 bytes)
     writer.write_all(b"fmt ")?;
     writer.write_all(&16u32.to_le_bytes())?; // Chunk size
-    writer.write_all(&1u16.to_le_bytes())?;  // PCM format
+    writer.write_all(&1u16.to_le_bytes())?; // PCM format
     writer.write_all(&num_channels.to_le_bytes())?;
     writer.write_all(&sample_rate.to_le_bytes())?;
     writer.write_all(&byte_rate.to_le_bytes())?;
