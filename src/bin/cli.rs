@@ -945,7 +945,7 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
         fs::create_dir_all(&config_dir)?;
         let conversation_file = config_dir.join(format!("conversation_{}.md", timestamp));
         log(&format!("New conversation file: {:?}", conversation_file), log_file);
-        ConversationState::new(conversation_file)
+        ConversationState::with_prompt(conversation_file, prompt_name.to_string())
     };
 
     log(&format!("Loaded conversation with {} messages", state.messages.len()), log_file);

@@ -2,14 +2,14 @@ use super::state::ConversationState;
 use eframe::egui;
 use notify::{Watcher, RecursiveMode, Event};
 use std::error::Error;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::path::PathBuf;
 use std::process::Command;
 use std::fs;
+use std::thread;
 
-const STATE_FILE_PATH: &str = "/tmp/transcribe-rs-conversation-state.json";
 const GUI_WINDOW_PID_FILE: &str = "/tmp/transcribe-rs-gui-window.pid";
 
 /// Check if the GUI window process is currently running
@@ -71,12 +71,60 @@ pub fn recover_orphaned_conversation(log_file: &str) -> Result<(), Box<dyn Error
     Ok(())
 }
 
+/// Call the LLM with the user message and conversation context
+fn call_llm(user_message: &str, conversation_history: &[(String, String)], prompt_name: &str) -> Result<String, String> {
+    use crate::{groq, prompts, config::Config};
+
+    // Load config
+    let config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
+
+    // Load prompt (defaults to "chat" if not specified)
+    let prompt = prompts::load_prompt(prompt_name)
+        .map_err(|e| format!("Failed to load prompt '{}': {}", prompt_name, e))?;
+
+    // Look up the tool set for this prompt
+    let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
+        if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
+            if tool_names.is_empty() {
+                groq::GroqClient::from_env_file_no_tools()
+                    .map_err(|e| format!("Failed to create Groq client: {}", e))?
+            } else {
+                groq::GroqClient::from_env_file_with_tool_set(tool_names.clone())
+                    .map_err(|e| format!("Failed to create Groq client: {}", e))?
+            }
+        } else {
+            groq::GroqClient::from_env_file_no_tools()
+                .map_err(|e| format!("Failed to create Groq client: {}", e))?
+        }
+    } else {
+        groq::GroqClient::from_env_file_no_tools()
+            .map_err(|e| format!("Failed to create Groq client: {}", e))?
+    };
+
+    // Call Groq with conversation context
+    let result = client.complete_with_history(&prompt, user_message, conversation_history, None)
+        .map_err(|e| format!("LLM call failed: {}", e))?;
+
+    Ok(result.text)
+}
+
+/// Response from the LLM background thread
+struct LlmResponse {
+    user_message: String,
+    assistant_response: Result<String, String>,
+}
+
 pub struct ConversationWindow {
     state: Arc<Mutex<ConversationState>>,
-    state_file_path: PathBuf,
     file_watcher_rx: Receiver<Result<Event, notify::Error>>,
     _watcher: Box<dyn Watcher>,  // Keep watcher alive
     should_close: bool,
+    // Text input fields
+    input_text: String,
+    is_submitting: bool,
+    llm_response_rx: Option<Receiver<LlmResponse>>,
+    llm_response_tx: Sender<LlmResponse>,
+    refocus_in_frames: u8,  // Count down frames until refocus (0 = don't refocus)
 }
 
 impl Drop for ConversationWindow {
@@ -126,13 +174,56 @@ impl ConversationWindow {
         fs::write(GUI_WINDOW_PID_FILE, pid.to_string())?;
         eprintln!("[GUI-WINDOW] Wrote PID file: {} (PID: {})", GUI_WINDOW_PID_FILE, pid);
 
+        // Set up channel for LLM responses
+        let (llm_tx, llm_rx) = channel();
+
         Ok(Self {
             state: Arc::new(Mutex::new(state)),
-            state_file_path,
             file_watcher_rx: rx,
             _watcher: Box::new(watcher),
             should_close: false,
+            input_text: String::new(),
+            is_submitting: false,
+            llm_response_rx: Some(llm_rx),
+            llm_response_tx: llm_tx,
+            refocus_in_frames: 0,
         })
+    }
+
+    /// Submit the current input text to the LLM
+    fn submit_message(&mut self) {
+        let message = self.input_text.trim().to_string();
+        if message.is_empty() {
+            return;
+        }
+
+        eprintln!("[GUI-WINDOW] Submitting message: {}", message);
+        self.is_submitting = true;
+        self.input_text.clear();
+
+        // Get conversation context and prompt name
+        let (conversation_context, prompt_name): (Vec<(String, String)>, String) = {
+            let state = self.state.lock().unwrap();
+            (state.get_context_for_llm(), state.prompt_name.clone())
+        };
+
+        // Clone what we need for the thread
+        let tx = self.llm_response_tx.clone();
+        let user_message = message.clone();
+
+        // Spawn thread to call LLM
+        thread::spawn(move || {
+            eprintln!("[GUI-WINDOW] LLM thread started with prompt: {}", prompt_name);
+
+            let result = call_llm(&user_message, &conversation_context, &prompt_name);
+
+            let _ = tx.send(LlmResponse {
+                user_message,
+                assistant_response: result,
+            });
+
+            eprintln!("[GUI-WINDOW] LLM thread finished");
+        });
     }
 
     pub fn run(state: ConversationState) -> Result<(), Box<dyn Error>> {
@@ -162,6 +253,40 @@ impl eframe::App for ConversationWindow {
         // Request repaint every 80ms to check for file changes (even when idle)
         ctx.request_repaint_after(std::time::Duration::from_millis(80));
 
+        // Check for LLM responses (non-blocking)
+        if let Some(ref rx) = self.llm_response_rx {
+            while let Ok(response) = rx.try_recv() {
+                eprintln!("[GUI-WINDOW] Received LLM response");
+                self.is_submitting = false;
+
+                match response.assistant_response {
+                    Ok(assistant_text) => {
+                        // Add messages to state
+                        let mut state = self.state.lock().unwrap();
+                        state.add_message("user", response.user_message);
+                        state.add_message("assistant", assistant_text);
+
+                        // Save state
+                        if let Err(e) = state.save() {
+                            eprintln!("[GUI-WINDOW] Failed to save state: {}", e);
+                        }
+                        if let Err(e) = state.save_to_markdown() {
+                            eprintln!("[GUI-WINDOW] Failed to save markdown: {}", e);
+                        }
+
+                        // Schedule refocus (0 = immediate on next check, try without delay)
+                        self.refocus_in_frames = 1;
+                    }
+                    Err(e) => {
+                        eprintln!("[GUI-WINDOW] LLM error: {}", e);
+                        if let Err(notify_err) = crate::notifications::notify_error(&e) {
+                            eprintln!("[GUI-WINDOW] Failed to send error notification: {}", notify_err);
+                        }
+                    }
+                }
+            }
+        }
+
         // Check for file system events (non-blocking)
         while let Ok(event) = self.file_watcher_rx.try_recv() {
             match event {
@@ -182,19 +307,83 @@ impl eframe::App for ConversationWindow {
             }
         }
 
-        // Handle keyboard shortcuts
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // Handle keyboard shortcuts (only Escape when not typing)
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.input_text.is_empty() {
             self.should_close = true;
         }
 
-        // Check for click outside window (close on focus loss)
-        if !ctx.input(|i| i.focused) {
+        // Check for click outside window (close on focus loss) - but not when submitting
+        if !self.is_submitting && !ctx.input(|i| i.focused) {
             // Only close if user clicked elsewhere, not on initial focus
             if ctx.input(|i| i.pointer.any_click()) {
                 self.should_close = true;
             }
         }
 
+        // Bottom panel for text input
+        egui::TopBottomPanel::bottom("input_panel").show(ctx, |ui| {
+            ui.add_space(4.0);
+
+            // Instructions
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Click message to copy • Enter to send • Shift+Enter for newline • ESC to close")
+                        .size(11.0)
+                        .color(egui::Color32::GRAY),
+                );
+            });
+
+            ui.add_space(4.0);
+
+            // Text input area
+            let text_edit_id = egui::Id::new("message_input");
+
+            ui.horizontal(|ui| {
+                let available_width = ui.available_width() - 70.0; // Leave space for button
+
+                // Check for Enter key press (without Shift)
+                let enter_pressed = ctx.input(|i| {
+                    i.key_pressed(egui::Key::Enter) && !i.modifiers.shift
+                });
+
+                let text_edit = egui::TextEdit::multiline(&mut self.input_text)
+                    .id(text_edit_id)
+                    .desired_width(available_width)
+                    .desired_rows(2)
+                    .hint_text("Type a message...")
+                    .interactive(!self.is_submitting);
+
+                let response = ui.add(text_edit);
+
+                // Handle Enter to submit (Shift+Enter adds newline naturally)
+                if enter_pressed && response.has_focus() && !self.is_submitting {
+                    // Remove the newline that Enter just added
+                    if self.input_text.ends_with('\n') {
+                        self.input_text.pop();
+                    }
+                    self.submit_message();
+                }
+
+                // Send button
+                ui.add_enabled_ui(!self.is_submitting && !self.input_text.trim().is_empty(), |ui| {
+                    if ui.button(if self.is_submitting { "..." } else { "Send" }).clicked() {
+                        self.submit_message();
+                    }
+                });
+            });
+
+            ui.add_space(4.0);
+        });
+
+        // Handle frame-delayed focus request for text input
+        if self.refocus_in_frames > 0 {
+            self.refocus_in_frames -= 1;
+            if self.refocus_in_frames == 0 {
+                ctx.memory_mut(|mem| mem.request_focus(egui::Id::new("message_input")));
+            }
+        }
+
+        // Main content area for messages
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Conversation");
             ui.separator();
@@ -205,7 +394,7 @@ impl eframe::App for ConversationWindow {
                 .show(ui, |ui| {
                     let state = self.state.lock().unwrap();
 
-                    if state.messages.is_empty() {
+                    if state.messages.is_empty() && !self.is_submitting {
                         ui.vertical_centered(|ui| {
                             ui.add_space(50.0);
                             ui.label(
@@ -214,7 +403,7 @@ impl eframe::App for ConversationWindow {
                                     .color(egui::Color32::GRAY),
                             );
                             ui.label(
-                                egui::RichText::new("Start dictating to begin the conversation")
+                                egui::RichText::new("Type below or dictate to begin")
                                     .size(14.0)
                                     .color(egui::Color32::DARK_GRAY),
                             );
@@ -294,20 +483,28 @@ impl eframe::App for ConversationWindow {
                             ui.add_space(8.0);
                             ui.separator();
                         }
+
+                        // Show "Thinking..." indicator when submitting
+                        if self.is_submitting {
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("Assistant")
+                                        .size(14.0)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(144, 238, 144)),
+                                );
+                            });
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("Thinking...")
+                                    .size(14.0)
+                                    .color(egui::Color32::GRAY)
+                                    .italics(),
+                            );
+                        }
                     }
                 });
-
-            ui.add_space(8.0);
-
-            // Footer with instructions
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Click any message to copy • ESC or click outside to close • Updates automatically")
-                        .size(12.0)
-                        .color(egui::Color32::GRAY),
-                );
-            });
         });
 
         // Close window if requested (Drop trait handles cleanup)

@@ -18,6 +18,12 @@ pub struct ConversationState {
     pub messages: Vec<Message>,
     pub conversation_file: PathBuf,
     pub window_open: bool,
+    #[serde(default = "default_prompt_name")]
+    pub prompt_name: String,
+}
+
+fn default_prompt_name() -> String {
+    "chat".to_string()
 }
 
 impl ConversationState {
@@ -26,6 +32,16 @@ impl ConversationState {
             messages: Vec::new(),
             conversation_file,
             window_open: false,
+            prompt_name: default_prompt_name(),
+        }
+    }
+
+    pub fn with_prompt(conversation_file: PathBuf, prompt_name: String) -> Self {
+        Self {
+            messages: Vec::new(),
+            conversation_file,
+            window_open: false,
+            prompt_name,
         }
     }
 
