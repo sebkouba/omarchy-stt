@@ -11,7 +11,7 @@ hound = "3.5.1"
 log = "0.4.28"
 ndarray = "0.16.1"
 ort = { version = "2.0.0-rc.10" }
-env_logger = "0.10.0"
+log4rs = { version = "1.3", features = ["yaml_format"] }
 regex = "1.11.2"
 thiserror = "2.0.16"
 once_cell = "1.21.3"

@@ -10,6 +10,7 @@
 //! - Stop latency: ~5-10ms (extract + write WAV)
 //! - Memory usage: ~3.7 MB for 2-minute buffer @ 16kHz mono 16-bit
 
+use log::{debug, error, info, warn};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -23,12 +24,12 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use transcribe_rs::circular_buffer::{CircularBuffer, SharedBuffer};
+use transcribe_rs::logging;
 
 const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
 const SAMPLE_RATE: u32 = 16000; // 16kHz
 const BUFFER_DURATION_SECONDS: usize = 120; // 2 minutes
 const OUTPUT_WAV_PATH: &str = "/tmp/ptt_current.wav";
-const LOG_FILE: &str = "/tmp/ptt_rust_debug.log";
 
 /// Daemon state
 struct DaemonState {
@@ -51,20 +52,13 @@ impl DaemonState {
 
 type SharedState = Arc<Mutex<DaemonState>>;
 
-/// Log a message to the debug log file
-fn log(message: &str) {
-    if let Ok(mut file) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(LOG_FILE)
-    {
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        writeln!(file, "[{}] [recording-daemon] {}", timestamp, message).ok();
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log("=== Recording daemon starting ===");
+    // Initialize logging
+    if let Err(e) = logging::init() {
+        eprintln!("Warning: Failed to initialize logging: {}", e);
+    }
+
+    info!("=== Recording daemon starting ===");
 
     // Get microphone from environment or use default
     let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| {
@@ -79,10 +73,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let buffer_capacity = SAMPLE_RATE as usize * buffer_seconds;
 
-    log(&format!(
+    debug!(
         "Configuration: microphone={}, buffer={}s ({} samples)",
         microphone, buffer_seconds, buffer_capacity
-    ));
+    );
 
     // Create shared buffer
     let buffer = Arc::new(Mutex::new(CircularBuffer::new(buffer_capacity)));
@@ -97,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = Arc::clone(&running);
     ctrlc::set_handler(move || {
-        log("Received shutdown signal");
+        debug!("Received shutdown signal");
         running_clone.store(false, Ordering::SeqCst);
     })?;
 
@@ -105,11 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     listen_on_socket(Arc::clone(&state), Arc::clone(&running))?;
 
     // Cleanup
-    log("Shutting down daemon");
+    debug!("Shutting down daemon");
     cleanup_ffmpeg(Arc::clone(&state));
     fs::remove_file(SOCKET_PATH).ok();
 
-    log("=== Recording daemon stopped ===");
+    info!("=== Recording daemon stopped ===");
     Ok(())
 }
 
@@ -119,7 +113,7 @@ fn spawn_ffmpeg_and_reader(
     buffer: SharedBuffer,
     state: SharedState,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log("Spawning FFmpeg process...");
+    debug!("Spawning FFmpeg process...");
 
     let child = Command::new("ffmpeg")
         .args([
@@ -132,7 +126,7 @@ fn spawn_ffmpeg_and_reader(
             "-ac",
             "1", // Mono
             "-f",
-            "s16le", // 16-bit PCM little-endian
+            "s16le",  // 16-bit PCM little-endian
             "pipe:1", // Output to stdout
         ])
         .stdout(Stdio::piped())
@@ -140,7 +134,7 @@ fn spawn_ffmpeg_and_reader(
         .spawn()?;
 
     let pid = child.id();
-    log(&format!("FFmpeg started with PID: {}", pid));
+    debug!("FFmpeg started with PID: {}", pid);
 
     // Save process handle in state
     {
@@ -157,7 +151,7 @@ fn spawn_ffmpeg_and_reader(
 /// Spawn thread to continuously read from FFmpeg stdout
 fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
     thread::spawn(move || {
-        log("Reader thread started");
+        debug!("Reader thread started");
 
         loop {
             // Get stdout handle from FFmpeg process
@@ -166,13 +160,13 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
                 if let Some(ref mut child) = state_guard.ffmpeg_process {
                     child.stdout.take()
                 } else {
-                    log("ERROR: No FFmpeg process in state");
+                    error!(" No FFmpeg process in state");
                     break;
                 }
             };
 
             if let Some(mut stdout) = stdout {
-                log("Reading from FFmpeg stdout...");
+                debug!("Reading from FFmpeg stdout...");
 
                 let mut chunk = vec![0u8; 16384]; // 8192 samples = 0.5 seconds @ 16kHz
                 let mut samples_written = 0;
@@ -180,7 +174,7 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
                 loop {
                     match stdout.read(&mut chunk) {
                         Ok(0) => {
-                            log("ERROR: FFmpeg stdout closed (EOF)");
+                            error!(" FFmpeg stdout closed (EOF)");
                             break; // EOF - FFmpeg crashed
                         }
                         Ok(n) => {
@@ -204,16 +198,16 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
                             samples_written += samples.len();
                         }
                         Err(e) => {
-                            log(&format!("ERROR: Read error from FFmpeg: {}", e));
+                            error!(" Read error from FFmpeg: {}", e);
                             break;
                         }
                     }
                 }
 
-                log(&format!(
+                debug!(
                     "FFmpeg stream ended, total samples written: {}",
                     samples_written
-                ));
+                );
 
                 // Put stdout back (needed for cleanup)
                 let mut state_guard = state.lock().unwrap();
@@ -223,23 +217,23 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
             }
 
             // FFmpeg crashed - wait and restart
-            log("Restarting FFmpeg after crash...");
+            debug!("Restarting FFmpeg after crash...");
             thread::sleep(Duration::from_secs(1));
 
             // Respawn FFmpeg
             if let Err(e) = respawn_ffmpeg(&state) {
-                log(&format!("ERROR: Failed to respawn FFmpeg: {}", e));
+                error!(" Failed to respawn FFmpeg: {}", e);
                 break;
             }
         }
 
-        log("Reader thread exiting");
+        debug!("Reader thread exiting");
     });
 }
 
 /// Respawn FFmpeg after a crash
 fn respawn_ffmpeg(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
-    log("Respawning FFmpeg...");
+    debug!("Respawning FFmpeg...");
 
     // Get microphone from environment
     let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| {
@@ -265,7 +259,7 @@ fn respawn_ffmpeg(state: &SharedState) -> Result<(), Box<dyn std::error::Error>>
         .spawn()?;
 
     let pid = child.id();
-    log(&format!("FFmpeg respawned with PID: {}", pid));
+    debug!("FFmpeg respawned with PID: {}", pid);
 
     let mut state_guard = state.lock().unwrap();
     state_guard.ffmpeg_process = Some(child);
@@ -282,7 +276,7 @@ fn listen_on_socket(
     fs::remove_file(SOCKET_PATH).ok();
 
     let listener = UnixListener::bind(SOCKET_PATH)?;
-    log(&format!("Listening on socket: {}", SOCKET_PATH));
+    debug!("Listening on socket: {}", SOCKET_PATH);
 
     // Set socket timeout so we can check running flag
     listener.set_nonblocking(true)?;
@@ -298,7 +292,7 @@ fn listen_on_socket(
                 continue;
             }
             Err(e) => {
-                log(&format!("ERROR: Accept failed: {}", e));
+                error!(" Accept failed: {}", e);
                 break;
             }
         }
@@ -309,8 +303,11 @@ fn listen_on_socket(
 
 /// Handle a client connection
 fn handle_client(mut stream: UnixStream, state: SharedState) {
-    let peer_addr = stream.peer_addr().map(|a| format!("{:?}", a)).unwrap_or_else(|_| "unknown".to_string());
-    log(&format!("Client connected: {}", peer_addr));
+    let peer_addr = stream
+        .peer_addr()
+        .map(|a| format!("{:?}", a))
+        .unwrap_or_else(|_| "unknown".to_string());
+    debug!("Client connected: {}", peer_addr);
 
     let reader = BufReader::new(stream.try_clone().unwrap());
 
@@ -322,28 +319,28 @@ fn handle_client(mut stream: UnixStream, state: SharedState) {
                     continue;
                 }
 
-                log(&format!("Received: {}", line));
+                debug!("Received: {}", line);
 
                 let response = match serde_json::from_str::<Value>(&line) {
                     Ok(request) => handle_request(request, Arc::clone(&state)),
                     Err(e) => json!({"ok": false, "error": format!("Invalid JSON: {}", e)}),
                 };
 
-                log(&format!("Sending: {}", response));
+                debug!("Sending: {}", response);
 
                 if let Err(e) = writeln!(stream, "{}", response) {
-                    log(&format!("ERROR: Failed to send response: {}", e));
+                    error!(" Failed to send response: {}", e);
                     break;
                 }
             }
             Err(e) => {
-                log(&format!("ERROR: Failed to read line: {}", e));
+                error!(" Failed to read line: {}", e);
                 break;
             }
         }
     }
 
-    log("Client disconnected");
+    debug!("Client disconnected");
 }
 
 /// Handle a single request
@@ -372,7 +369,7 @@ fn handle_start(state: SharedState) -> Value {
 
     state_guard.recording_start_index = Some(start_index);
 
-    log(&format!("Recording started at index: {}", start_index));
+    debug!("Recording started at index: {}", start_index);
 
     json!({"ok": true, "start_index": start_index})
 }
@@ -402,10 +399,10 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
         let end_index = buffer_guard.get_current_index();
         let sample_count = end_index.saturating_sub(start_index);
 
-        log(&format!(
+        debug!(
             "Stopping recording: start={}, end={}, samples={}",
             start_index, end_index, sample_count
-        ));
+        );
 
         if sample_count == 0 {
             drop(buffer_guard);
@@ -416,10 +413,10 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
         // Check if recording was too long and got truncated
         let buffer_capacity = buffer_guard.stats().capacity;
         if sample_count > buffer_capacity {
-            log(&format!(
+            debug!(
                 "WARNING: Recording truncated to last {} seconds",
                 BUFFER_DURATION_SECONDS
-            ));
+            );
         }
 
         // Extract samples from buffer
@@ -432,21 +429,25 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
         return json!({"ok": false, "error": "Audio data lost (buffer overwritten)"});
     }
 
-    log(&format!("Extracted {} samples", samples.len()));
+    debug!("Extracted {} samples", samples.len());
 
     // Write WAV file
-    match transcribe_rs::audio::write_wav_from_samples(&samples, SAMPLE_RATE, Path::new(OUTPUT_WAV_PATH)) {
+    match transcribe_rs::audio::write_wav_from_samples(
+        &samples,
+        SAMPLE_RATE,
+        Path::new(OUTPUT_WAV_PATH),
+    ) {
         Ok(_) => {
             let duration_ms = (samples.len() as f64 / SAMPLE_RATE as f64 * 1000.0) as u64;
             let latency_ms = start_time.elapsed().as_millis() as u64;
 
-            log(&format!(
+            debug!(
                 "WAV file written: {} ({} samples, {:.2}s, latency: {}ms)",
                 OUTPUT_WAV_PATH,
                 samples.len(),
                 duration_ms as f64 / 1000.0,
                 latency_ms
-            ));
+            );
 
             state_guard.recording_start_index = None;
 
@@ -459,7 +460,7 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
             })
         }
         Err(e) => {
-            log(&format!("ERROR: Failed to write WAV file: {}", e));
+            error!(" Failed to write WAV file: {}", e);
             state_guard.recording_start_index = None;
             json!({"ok": false, "error": format!("Failed to write WAV: {}", e)})
         }
@@ -483,12 +484,12 @@ fn handle_ping(state: SharedState) -> Value {
 
 /// Cleanup FFmpeg process on shutdown
 fn cleanup_ffmpeg(state: SharedState) {
-    log("Cleaning up FFmpeg process...");
+    debug!("Cleaning up FFmpeg process...");
 
     let mut state_guard = state.lock().unwrap();
 
     if let Some(mut child) = state_guard.ffmpeg_process.take() {
-        log(&format!("Killing FFmpeg process (PID: {})", child.id()));
+        debug!("Killing FFmpeg process (PID: {})", child.id());
 
         #[cfg(unix)]
         {
@@ -502,21 +503,21 @@ fn cleanup_ffmpeg(state: SharedState) {
         for _ in 0..20 {
             match child.try_wait() {
                 Ok(Some(_)) => {
-                    log("FFmpeg exited gracefully");
+                    debug!("FFmpeg exited gracefully");
                     return;
                 }
                 Ok(None) => {
                     thread::sleep(Duration::from_millis(100));
                 }
                 Err(e) => {
-                    log(&format!("ERROR: Failed to wait for FFmpeg: {}", e));
+                    error!(" Failed to wait for FFmpeg: {}", e);
                     break;
                 }
             }
         }
 
         // Force kill if still running
-        log("Force killing FFmpeg");
+        debug!("Force killing FFmpeg");
         child.kill().ok();
         child.wait().ok();
     }

@@ -1,22 +1,13 @@
 use clap::{Parser, Subcommand};
+use log::{debug, error, info, warn};
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use transcribe_rs::{clipboard, config::Config, dictation_logger, notifications, paste, performance_log, recording, timing};
-
-/// Append a log message to the debug log
-fn log(message: &str, log_file: &str) {
-    use std::io::Write;
-    if let Ok(mut file) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_file)
-    {
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        writeln!(file, "[{}] [cli] {}", timestamp, message).ok();
-    }
-}
+use transcribe_rs::{
+    clipboard, config::Config, dictation_logger, logging, notifications, paste, performance_log,
+    recording, timing,
+};
 
 #[derive(Parser)]
 #[command(name = "transcribe")]
@@ -64,6 +55,11 @@ enum ConfigCommands {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Initialize logging (loads from config file or uses defaults)
+    if let Err(e) = logging::init() {
+        eprintln!("Warning: Failed to initialize logging: {}", e);
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -93,60 +89,60 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_start(config: &Config, prompt: Option<String>) -> Result<(), Box<dyn Error>> {
-    log("=== HANDLE START ===", &config.audio.log_file);
+    info!("=== HANDLE START ===");
 
     // Save prompt name to temp file for stop command
     const PROMPT_STATE_FILE: &str = "/tmp/ptt_prompt.txt";
     if let Some(prompt_name) = prompt {
-        log(&format!("Saving prompt name: {}", prompt_name), &config.audio.log_file);
+        debug!("Saving prompt name: {}", prompt_name);
         fs::write(PROMPT_STATE_FILE, prompt_name)?;
     } else {
         // Remove prompt file if no prompt specified
         let _ = fs::remove_file(PROMPT_STATE_FILE);
     }
 
-    log("Starting recording...", &config.audio.log_file);
+    debug!("Starting recording...");
     recording::start_recording(&config.audio)?;
-    log("Recording started successfully", &config.audio.log_file);
+    debug!("Recording started successfully");
 
-    log("Sending notification...", &config.audio.log_file);
+    debug!("Sending notification...");
     if let Err(e) = notifications::notify_recording_started() {
-        log(&format!("WARNING: Notification failed: {}", e), &config.audio.log_file);
+        warn!("Notification failed: {}", e);
     }
 
     println!("🎤 Recording started...");
-    log("=== HANDLE START COMPLETE ===", &config.audio.log_file);
+    info!("=== HANDLE START COMPLETE ===");
     Ok(())
 }
 
 fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
-    log("=== HANDLE STOP ===", &config.audio.log_file);
+    info!("=== HANDLE STOP ===");
 
     // Save start timestamp for performance tracking (measures from stop command to paste)
     if let Err(e) = timing::save_start_time() {
-        log(&format!("WARNING: Failed to save start timestamp: {}", e), &config.audio.log_file);
+        warn!("Failed to save start timestamp: {}", e);
     }
 
     // Initialize performance metrics from saved start time
     let mut metrics = match timing::PerformanceMetrics::from_start_time() {
         Ok(m) => Some(m),
         Err(e) => {
-            log(&format!("WARNING: Failed to load start timestamp: {}", e), &config.audio.log_file);
+            warn!("Failed to load start timestamp: {}", e);
             None
         }
     };
 
     // Send notification immediately for instant user feedback
-    log("Sending stop notification...", &config.audio.log_file);
+    debug!("Sending stop notification...");
     if let Err(e) = notifications::notify_recording_stopped() {
-        log(&format!("WARNING: Notification failed: {}", e), &config.audio.log_file);
+        warn!("Notification failed: {}", e);
     }
     println!("⏹️  Recording stopped");
 
     // Stop recording (may take 0.6-1.6s depending on audio length)
-    log("Stopping recording...", &config.audio.log_file);
+    debug!("Stopping recording...");
     let audio_file = recording::stop_recording(&config.audio)?;
-    log(&format!("Audio file: {:?}", audio_file), &config.audio.log_file);
+    debug!("Audio file: {:?}", audio_file);
 
     if let Some(ref mut m) = metrics {
         m.mark_recording_stop();
@@ -154,18 +150,21 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     // Transcribe using daemon client
     println!("📝 Transcribing...");
-    log("Calling transcribe_file...", &config.audio.log_file);
-    let transcription = match transcribe_file(&audio_file, &config.audio.log_file) {
+    debug!("Calling transcribe_file...");
+    let transcription = match transcribe_file(&audio_file) {
         Ok(t) => {
-            log(&format!("Transcription received: {} chars", t.len()), &config.audio.log_file);
+            debug!("Transcription received: {} chars", t.len());
             t
         }
         Err(e) => {
-            log(&format!("ERROR: Transcription failed: {}", e), &config.audio.log_file);
+            error!("Transcription failed: {}", e);
 
             // Check if this is a daemon connection error
             let error_msg = e.to_string();
-            if error_msg.contains("Failed to connect") || error_msg.contains("daemon") || error_msg.contains("No such file or directory") {
+            if error_msg.contains("Failed to connect")
+                || error_msg.contains("daemon")
+                || error_msg.contains("No such file or directory")
+            {
                 notifications::notify_error("Daemon not found\nStart with: transcribe-daemon").ok();
             } else {
                 notifications::notify_error(&format!("Transcription failed: {}", e)).ok();
@@ -181,17 +180,17 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     if transcription.is_empty() {
-        log("ERROR: Empty transcription", &config.audio.log_file);
+        error!("Empty transcription");
         notifications::notify_error("No speech detected").ok();
         return Err("Empty transcription".into());
     }
 
-    log(&format!("Transcription text: '{}'", transcription), &config.audio.log_file);
+    debug!("Transcription text: '{}'", transcription);
 
     // Apply transcription corrections (phonetic/acoustic fixes) if enabled
     // Note: This still runs in CLI. Harper processing now happens in daemon.
     let processed_text = if config.transcription_corrections.enabled {
-        log("Applying transcription corrections...", &config.audio.log_file);
+        debug!("Applying transcription corrections...");
         use std::path::PathBuf;
         use transcribe_rs::transcription_corrections::TranscriptionCorrector;
 
@@ -200,14 +199,17 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             Ok(corrector) => {
                 let corrected = corrector.correct(&transcription);
                 if corrected != transcription {
-                    log(&format!("Applied transcription corrections: '{}' → '{}'", transcription, corrected), &config.audio.log_file);
+                    debug!(
+                        "Applied transcription corrections: '{}' → '{}'",
+                        transcription, corrected
+                    );
                 } else {
-                    log("No transcription corrections needed", &config.audio.log_file);
+                    debug!("No transcription corrections needed");
                 }
                 corrected
             }
             Err(e) => {
-                log(&format!("WARNING: Failed to load transcription corrections: {}", e), &config.audio.log_file);
+                warn!("Failed to load transcription corrections: {}", e);
                 transcription.clone()
             }
         }
@@ -226,39 +228,52 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         let prompt_name = prompt_name.trim();
         if !prompt_name.is_empty() {
             llm_processing_triggered = true;
-            log(&format!("Prompt requested: {}", prompt_name), &config.audio.log_file);
+            debug!("Prompt requested: {}", prompt_name);
 
             // Check if this is a clear history command
-            if is_clear_history_command(&processed_text, &config) {
-                log(&format!("Clear history command detected for prompt '{}'", prompt_name), &config.audio.log_file);
-                match clear_conversation_history(prompt_name, &config) {
+            if is_clear_history_command(&processed_text, config) {
+                debug!(
+                    "Clear history command detected for prompt '{}'",
+                    prompt_name
+                );
+                match clear_conversation_history(prompt_name, config) {
                     Ok(_) => {
-                        log("Conversation history cleared", &config.audio.log_file);
-                        notifications::notify("🗑️ History Cleared", &format!("Conversation history for '{}' has been reset", prompt_name), 2000).ok();
-                        "".to_string()  // Return empty string so nothing gets pasted
+                        info!("Conversation history cleared");
+                        notifications::notify(
+                            "🗑️ History Cleared",
+                            &format!("Conversation history for '{}' has been reset", prompt_name),
+                            2000,
+                        )
+                        .ok();
+                        "".to_string() // Return empty string so nothing gets pasted
                     }
                     Err(e) => {
-                        log(&format!("ERROR: Failed to clear history: {}", e), &config.audio.log_file);
-                        notifications::notify_error(&format!("Failed to clear history: {}", e)).ok();
+                        error!("Failed to clear history: {}", e);
+                        notifications::notify_error(&format!("Failed to clear history: {}", e))
+                            .ok();
                         processed_text.clone()
                     }
                 }
             } else {
                 // Try to process with Groq API
-                match process_with_groq(&processed_text, prompt_name, &config.audio.log_file) {
-                Ok(result) => {
-                    log(&format!("Groq processing successful: '{}'", result.text), &config.audio.log_file);
-                    tool_was_called = result.tool_called;
-                    if tool_was_called {
-                        log("Tool was called - will skip paste and show notification only", &config.audio.log_file);
+                match process_with_groq(&processed_text, prompt_name) {
+                    Ok(result) => {
+                        debug!("Groq processing successful: '{}'", result.text);
+                        tool_was_called = result.tool_called;
+                        if tool_was_called {
+                            debug!("Tool was called - will skip paste and show notification only");
+                        }
+                        result.text
                     }
-                    result.text
-                }
-                Err(e) => {
-                    log(&format!("ERROR: Groq processing failed: {}", e), &config.audio.log_file);
-                    notifications::notify_error(&format!("Groq API failed: {}\nPasted raw transcription.", e)).ok();
-                    processed_text.clone()
-                }
+                    Err(e) => {
+                        error!("Groq processing failed: {}", e);
+                        notifications::notify_error(&format!(
+                            "Groq API failed: {}\nPasted raw transcription.",
+                            e
+                        ))
+                        .ok();
+                        processed_text.clone()
+                    }
                 }
             }
         } else {
@@ -275,16 +290,16 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     // Add space after punctuation (do this even if tool was called, for logging)
 
     let text = if config.integration.add_space_after_punctuation {
-        log("Adding trailing space after punctuation...", &config.audio.log_file);
+        debug!("Adding trailing space after punctuation...");
         clipboard::add_trailing_space_after_punctuation(&final_text)
     } else {
         final_text
     };
-    log(&format!("Final text: '{}'", text), &config.audio.log_file);
+    debug!("Final text: '{}'", text);
 
     // If a tool was called, just show notification and skip paste
     if tool_was_called {
-        log("Tool called - skipping clipboard and paste, showing notification only", &config.audio.log_file);
+        debug!("Tool called - skipping clipboard and paste, showing notification only");
         notifications::notify("✅ Tool executed", &text, 3000).ok();
 
         if let Some(ref mut m) = metrics {
@@ -295,16 +310,16 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         // Normal flow: copy to clipboard and paste
 
         // Copy to clipboard
-        log("Copying to clipboard...", &config.audio.log_file);
+        debug!("Copying to clipboard...");
         match clipboard::copy_to_clipboard(&text) {
             Ok(_) => {
-                log("Clipboard copy successful", &config.audio.log_file);
+                debug!("Clipboard copy successful");
                 if let Some(ref mut m) = metrics {
                     m.mark_clipboard_done();
                 }
             }
             Err(e) => {
-                log(&format!("ERROR: Clipboard copy failed: {}", e), &config.audio.log_file);
+                error!("Clipboard copy failed: {}", e);
                 eprintln!("Clipboard error: {}", e);
                 return Err(e);
             }
@@ -316,40 +331,43 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         } else {
             text.clone()
         };
-        log(&format!("Preview: '{}'", preview), &config.audio.log_file);
+        debug!("Preview: '{}'", preview);
 
         // Auto-paste if enabled
         if config.integration.auto_paste {
-            log("Attempting auto-paste...", &config.audio.log_file);
+            debug!("Attempting auto-paste...");
             match paste::paste_from_clipboard() {
                 Ok(_) => {
-                    log("Paste successful", &config.audio.log_file);
+                    debug!("Paste successful");
                     if let Some(ref mut m) = metrics {
                         m.mark_paste_done();
                     }
                     notifications::notify_transcription_pasted(&preview).ok();
                 }
                 Err(e) => {
-                    log(&format!("WARNING: Paste failed: {}, clipboard only", e), &config.audio.log_file);
+                    warn!("Paste failed: {}, clipboard only", e);
                     notifications::notify_transcription_copied(&preview).ok();
                 }
             }
         } else {
-        log("Auto-paste disabled in config, clipboard only", &config.audio.log_file);
-        // Mark paste as done even if disabled, to track total workflow time
-        if let Some(ref mut m) = metrics {
-            m.mark_paste_done();
-        }
-        notifications::notify_transcription_copied(&preview).ok();
+            debug!("Auto-paste disabled in config, clipboard only");
+            // Mark paste as done even if disabled, to track total workflow time
+            if let Some(ref mut m) = metrics {
+                m.mark_paste_done();
+            }
+            notifications::notify_transcription_copied(&preview).ok();
         }
     }
 
     // Log performance metrics
     if let Some(m) = metrics {
         if let Err(e) = performance_log::log_performance_detailed(&m, &text) {
-            log(&format!("WARNING: Failed to log performance: {}", e), &config.audio.log_file);
+            warn!("Failed to log performance: {}", e);
         } else {
-            log(&format!("Performance logged: {:.3}s total", m.total_duration_seconds()), &config.audio.log_file);
+            debug!(
+                "Performance logged: {:.3}s total",
+                m.total_duration_seconds()
+            );
         }
 
         // Log dictation if enabled
@@ -361,7 +379,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                 if processed_text.trim() != text.trim() {
                     // Generate diff showing what changed
                     let diff = dictation_logger::generate_diff(&processed_text, &text);
-                    log(&format!("LLM diff: {}", diff), &config.audio.log_file);
+                    debug!("LLM diff: {}", diff);
 
                     // Log to LLM corrections log
                     if let Err(e) = dictation_logger::log_llm_correction(
@@ -371,12 +389,12 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                         duration,
                         &config.dictation_logging.llm_log_path,
                     ) {
-                        log(&format!("WARNING: Failed to log LLM correction: {}", e), &config.audio.log_file);
+                        warn!("Failed to log LLM correction: {}", e);
                     } else {
-                        log("Logged to LLM corrections log", &config.audio.log_file);
+                        debug!("Logged to LLM corrections log");
                     }
                 } else {
-                    log("LLM processing triggered but no actual changes made (skipped logging)", &config.audio.log_file);
+                    debug!("LLM processing triggered but no actual changes made (skipped logging)");
                 }
             } else if !llm_processing_triggered && config.dictation_logging.basic_log_enabled {
                 // Log to basic dictation log
@@ -385,9 +403,9 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                     duration,
                     &config.dictation_logging.basic_log_path,
                 ) {
-                    log(&format!("WARNING: Failed to log basic dictation: {}", e), &config.audio.log_file);
+                    warn!("Failed to log basic dictation: {}", e);
                 } else {
-                    log("Logged to basic dictation log", &config.audio.log_file);
+                    debug!("Logged to basic dictation log");
                 }
             }
         }
@@ -397,7 +415,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     println!("Transcription: {}", text);
-    log("=== HANDLE STOP COMPLETE ===", &config.audio.log_file);
+    info!("=== HANDLE STOP COMPLETE ===");
     Ok(())
 }
 
@@ -413,7 +431,10 @@ fn handle_config(config_cmd: ConfigCommands) -> Result<(), Box<dyn Error>> {
         ConfigCommands::Init => {
             let config_path = Config::config_path()?;
             if config_path.exists() {
-                println!("⚠️  Config file already exists at: {}", config_path.display());
+                println!(
+                    "⚠️  Config file already exists at: {}",
+                    config_path.display()
+                );
                 println!("Use 'transcribe config show' to view current config");
             } else {
                 let config = Config::default();
@@ -472,7 +493,10 @@ fn handle_doctor() -> Result<(), Box<dyn Error>> {
 
                 // Check microphone
                 if config.audio.microphone != "default" {
-                    println!("  ℹ️  Using specific microphone: {}", config.audio.microphone);
+                    println!(
+                        "  ℹ️  Using specific microphone: {}",
+                        config.audio.microphone
+                    );
                     println!("     Verify with: pactl list sources short");
                 }
             }
@@ -520,11 +544,15 @@ fn handle_doctor() -> Result<(), Box<dyn Error>> {
 
     // Check microphone sources
     println!("🎤 Available Microphones:");
-    match Command::new("pactl").args(["list", "sources", "short"]).output() {
+    match Command::new("pactl")
+        .args(["list", "sources", "short"])
+        .output()
+    {
         Ok(output) => {
             if output.status.success() {
                 let sources = String::from_utf8_lossy(&output.stdout);
-                let mic_lines: Vec<&str> = sources.lines()
+                let mic_lines: Vec<&str> = sources
+                    .lines()
                     .filter(|line| line.contains("input"))
                     .collect();
 
@@ -556,7 +584,9 @@ fn handle_doctor() -> Result<(), Box<dyn Error>> {
         println!("  3. Press hotkey, speak, release");
     } else {
         println!("❌ Some issues found. Please fix them before using transcribe-rs.");
-        println!("\nFor help, see: https://github.com/YOUR_USERNAME/transcribe-rs-v2#troubleshooting");
+        println!(
+            "\nFor help, see: https://github.com/YOUR_USERNAME/transcribe-rs-v2#troubleshooting"
+        );
     }
 
     Ok(())
@@ -571,13 +601,14 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
         }
         _ => {
             println!("  ❌ {} ({}) - NOT FOUND", cmd, purpose);
-            println!("     Install with: sudo pacman -S {}",
+            println!(
+                "     Install with: sudo pacman -S {}",
                 match cmd {
                     "ffmpeg" => "ffmpeg",
                     "wl-copy" => "wl-clipboard",
                     "ydotool" => "ydotool",
                     "pactl" => "pulseaudio",
-                    _ => cmd
+                    _ => cmd,
                 }
             );
             false
@@ -586,10 +617,13 @@ fn check_command(cmd: &str, purpose: &str) -> bool {
 }
 
 /// Process transcribed text with Groq API using specified prompt
-fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<transcribe_rs::groq::CompletionResult, Box<dyn Error>> {
-    use transcribe_rs::{groq, prompts, config::Config};
+fn process_with_groq(
+    text: &str,
+    prompt_name: &str,
+) -> Result<transcribe_rs::groq::CompletionResult, Box<dyn Error>> {
+    use transcribe_rs::{config::Config, groq, prompts};
 
-    log(&format!("Loading prompt: {}", prompt_name), log_file);
+    debug!("Loading prompt: {}", prompt_name);
     let prompt = prompts::load_prompt(prompt_name)?;
 
     // Load config to determine which tools to use for this prompt
@@ -597,68 +631,82 @@ fn process_with_groq(text: &str, prompt_name: &str, log_file: &str) -> Result<tr
 
     // Look up the tool set for this prompt
     let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
-        log(&format!("Prompt '{}' mapped to tool set '{}'", prompt_name, tool_set_name), log_file);
+        debug!(
+            "Prompt '{}' mapped to tool set '{}'",
+            prompt_name, tool_set_name
+        );
 
         // Look up the tool names for this tool set
         if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
             if tool_names.is_empty() {
-                log(&format!("Tool set '{}' is empty, creating client with no tools", tool_set_name), log_file);
+                debug!(
+                    "Tool set '{}' is empty, creating client with no tools",
+                    tool_set_name
+                );
                 groq::GroqClient::from_env_file_no_tools()?
             } else {
-                log(&format!("Tool set '{}' contains {} tools, loading them", tool_set_name, tool_names.len()), log_file);
+                debug!(
+                    "Tool set '{}' contains {} tools, loading them",
+                    tool_set_name,
+                    tool_names.len()
+                );
                 groq::GroqClient::from_env_file_with_tool_set(tool_names.clone())?
             }
         } else {
-            log(&format!("Warning: Tool set '{}' not found in config, using no tools", tool_set_name), log_file);
+            warn!(
+                "Tool set '{}' not found in config, using no tools",
+                tool_set_name
+            );
             groq::GroqClient::from_env_file_no_tools()?
         }
     } else {
-        log(&format!("Prompt '{}' not in tool mapping, using no tools", prompt_name), log_file);
+        debug!(
+            "Prompt '{}' not in tool mapping, using no tools",
+            prompt_name
+        );
         groq::GroqClient::from_env_file_no_tools()?
     };
 
-    log("Sending request to Groq API...", log_file);
+    debug!("Sending request to Groq API...");
     let result = client.complete(&prompt, text, prompt_name)?;
 
     Ok(result)
 }
 
 /// Call the transcribe-client binary to transcribe a file
-fn transcribe_file(file: &PathBuf, log_file: &str) -> Result<String, Box<dyn Error>> {
+fn transcribe_file(file: &PathBuf) -> Result<String, Box<dyn Error>> {
     // Try to find transcribe-client in the same directory as this binary
     let current_exe = std::env::current_exe()?;
     let exe_dir = current_exe.parent().ok_or("Cannot get exe directory")?;
     let client_path = exe_dir.join("transcribe-client");
 
-    log(&format!("Looking for transcribe-client at: {:?}", client_path), log_file);
+    debug!("Looking for transcribe-client at: {:?}", client_path);
 
     if !client_path.exists() {
-        log(&format!("ERROR: transcribe-client not found at {:?}", client_path), log_file);
+        error!("transcribe-client not found at {:?}", client_path);
         return Err(format!(
             "transcribe-client binary not found at {:?}. Make sure the daemon is running.",
             client_path
-        ).into());
+        )
+        .into());
     }
 
-    log(&format!("Calling transcribe-client with file: {:?}", file), log_file);
-    let output = Command::new(&client_path)
-        .arg(file)
-        .output()
-        .map_err(|e| {
-            log(&format!("ERROR: Failed to execute transcribe-client: {}", e), log_file);
-            e
-        })?;
+    debug!("Calling transcribe-client with file: {:?}", file);
+    let output = Command::new(&client_path).arg(file).output().map_err(|e| {
+        error!("Failed to execute transcribe-client: {}", e);
+        e
+    })?;
 
-    log(&format!("transcribe-client exit status: {:?}", output.status), log_file);
+    debug!("transcribe-client exit status: {:?}", output.status);
 
     if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
-        log(&format!("transcribe-client stderr: {}", error), log_file);
-        return Err(format!("Transcription failed: {}", error).into());
+        let err_output = String::from_utf8_lossy(&output.stderr);
+        error!("transcribe-client stderr: {}", err_output);
+        return Err(format!("Transcription failed: {}", err_output).into());
     }
 
     let text = String::from_utf8(output.stdout)?;
-    log(&format!("transcribe-client stdout: '{}'", text), log_file);
+    debug!("transcribe-client stdout: '{}'", text);
     Ok(text.trim().to_string())
 }
 
@@ -685,7 +733,10 @@ fn is_clear_history_command(text: &str, config: &transcribe_rs::config::Config) 
 }
 
 /// Clear the conversation history for a specific prompt
-fn clear_conversation_history(prompt_name: &str, config: &transcribe_rs::config::Config) -> Result<(), Box<dyn Error>> {
+fn clear_conversation_history(
+    prompt_name: &str,
+    config: &transcribe_rs::config::Config,
+) -> Result<(), Box<dyn Error>> {
     use transcribe_rs::conversation_history::ConversationHistory;
 
     let history = ConversationHistory::new(
