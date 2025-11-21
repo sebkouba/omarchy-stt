@@ -60,6 +60,7 @@ pub mod config;
 pub mod conversation_history;
 pub mod dictation_logger;
 pub mod groq;
+pub mod logging;
 pub mod notifications;
 pub mod paste;
 pub mod performance_log;

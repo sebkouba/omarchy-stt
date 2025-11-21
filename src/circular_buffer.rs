@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 pub struct CircularBuffer {
     buffer: Vec<i16>,
     capacity: usize,
-    write_index: usize,  // Current write position (0..capacity)
+    write_index: usize,   // Current write position (0..capacity)
     total_written: usize, // Total samples written since creation (monotonically increasing)
 }
 
