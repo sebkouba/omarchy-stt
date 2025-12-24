@@ -4,10 +4,13 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
+use std::time::Duration;
 use transcribe_rs::{
     config::Config,
     engines::parakeet::{ParakeetEngine, ParakeetModelParams},
+    file_watcher::{self, FileWatcher, WatchEvent},
     logging, TranscriptionEngine,
 };
 
@@ -109,6 +112,88 @@ fn handle_transcribe_request(
             text: None,
             error: Some(format!("Transcription error: {}", e)),
         },
+    }
+}
+
+/// Handle a file watcher event - transcribe and save to text file
+fn handle_watch_event(
+    event: WatchEvent,
+    state: &mut DaemonState,
+    watch_dir: &Path,
+) {
+    match event {
+        WatchEvent::FileReady { wav_path, original_path } => {
+            eprintln!("📁 Processing watched file: {}", original_path.display());
+
+            // Split into chunks if needed (for long audio files)
+            let chunks = match file_watcher::split_audio_if_needed(&wav_path) {
+                Ok(chunks) => chunks,
+                Err(e) => {
+                    eprintln!("❌ Failed to check/split audio: {}", e);
+                    return;
+                }
+            };
+
+            // Transcribe all chunks and concatenate results
+            let mut full_text = String::new();
+            let mut success = true;
+
+            for (i, chunk_path) in chunks.iter().enumerate() {
+                if chunks.len() > 1 {
+                    eprintln!("🔄 Transcribing chunk {}/{}", i + 1, chunks.len());
+                }
+
+                match state.transcription_engine.transcribe_file(chunk_path, None) {
+                    Ok(result) => {
+                        if !full_text.is_empty() && !result.text.is_empty() {
+                            full_text.push(' ');
+                        }
+                        full_text.push_str(&result.text);
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Transcription failed for chunk {}: {}", i + 1, e);
+                        success = false;
+                        break;
+                    }
+                }
+            }
+
+            // Clean up chunk files
+            file_watcher::cleanup_chunks(&chunks, &wav_path);
+
+            if success && !full_text.is_empty() {
+                // Create the text file path (same name as original, .txt extension)
+                let text_filename = original_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("transcription");
+                let text_path = watch_dir.join(format!("{}.txt", text_filename));
+
+                // Write transcription to text file
+                match fs::write(&text_path, &full_text) {
+                    Ok(_) => {
+                        eprintln!("✅ Transcription saved: {}", text_path.display());
+
+                        // Move original (and temp WAV if different) to processed
+                        if let Err(e) = file_watcher::move_to_processed(
+                            &original_path,
+                            &wav_path,
+                            watch_dir,
+                        ) {
+                            eprintln!("⚠️  Failed to move to processed: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to write transcription: {}", e);
+                    }
+                }
+            } else if full_text.is_empty() {
+                eprintln!("⚠️  No transcription text generated");
+            }
+        }
+        WatchEvent::Error(e) => {
+            eprintln!("⚠️  File watcher error: {}", e);
+        }
     }
 }
 
@@ -227,24 +312,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create Unix socket
     let listener = UnixListener::bind(&socket_path)?;
     eprintln!("👂 Listening on {}", socket_path);
+
+    // Set up file watcher if enabled
+    let watch_receiver: Option<Receiver<WatchEvent>>;
+    let watch_dir: Option<PathBuf>;
+    let _file_watcher: Option<FileWatcher>;
+
+    if config.watch.enabled {
+        let watch_path = PathBuf::from(&config.watch.watch_dir);
+        eprintln!("👁️  Watching directory: {}", watch_path.display());
+
+        match FileWatcher::new(config.watch.clone()) {
+            Ok((watcher, receiver)) => {
+                _file_watcher = Some(watcher);
+                watch_receiver = Some(receiver);
+                watch_dir = Some(watch_path);
+            }
+            Err(e) => {
+                eprintln!("⚠️  Failed to start file watcher: {}", e);
+                eprintln!("   Directory watching disabled.");
+                _file_watcher = None;
+                watch_receiver = None;
+                watch_dir = None;
+            }
+        }
+    } else {
+        _file_watcher = None;
+        watch_receiver = None;
+        watch_dir = None;
+    }
+
     eprintln!("Ready to accept transcription requests!");
 
-    // Accept connections
-    for stream in listener.incoming() {
-        if !running.load(Ordering::SeqCst) {
-            break;
-        }
+    // Set socket to non-blocking for polling
+    listener.set_nonblocking(true)?;
 
-        match stream {
-            Ok(stream) => {
+    // Main event loop
+    while running.load(Ordering::SeqCst) {
+        // Check for socket connections
+        match listener.accept() {
+            Ok((stream, _)) => {
+                // Set stream back to blocking for the handler
+                stream.set_nonblocking(false)?;
                 if let Err(e) = handle_client(stream, &mut state) {
                     eprintln!("⚠️  Error handling client: {}", e);
                 }
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No pending connections, continue
             }
             Err(e) => {
                 eprintln!("⚠️  Connection error: {}", e);
             }
         }
+
+        // Check for file watcher events
+        if let (Some(ref rx), Some(ref dir)) = (&watch_receiver, &watch_dir) {
+            // Non-blocking receive
+            while let Ok(event) = rx.try_recv() {
+                handle_watch_event(event, &mut state, dir);
+            }
+        }
+
+        // Small sleep to avoid busy-waiting
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     // Cleanup

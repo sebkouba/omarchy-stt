@@ -21,6 +21,8 @@ pub struct Config {
     pub llm: LlmConfig,
     #[serde(default)]
     pub ocr: OcrConfig,
+    #[serde(default)]
+    pub watch: WatchConfig,
 }
 
 /// Audio recording configuration
@@ -140,6 +142,19 @@ pub struct OcrConfig {
     pub result_path: String,
 }
 
+/// Watch directory configuration for automatic transcription
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchConfig {
+    /// Enable directory watching
+    pub enabled: bool,
+    /// Directory to watch for new audio files
+    pub watch_dir: String,
+    /// Supported audio file extensions (without dot)
+    pub extensions: Vec<String>,
+    /// Debounce duration in milliseconds (wait for file write to complete)
+    pub debounce_ms: u64,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -151,6 +166,7 @@ impl Default for Config {
             dictation_logging: DictationLoggingConfig::default(),
             llm: LlmConfig::default(),
             ocr: OcrConfig::default(),
+            watch: WatchConfig::default(),
         }
     }
 }
@@ -285,6 +301,28 @@ impl Default for OcrConfig {
             dpi: 300,
             screenshot_path: "/tmp/ptt_ocr_screenshot.png".to_string(),
             result_path: "/tmp/ptt_ocr_result.txt".to_string(),
+        }
+    }
+}
+
+impl Default for WatchConfig {
+    fn default() -> Self {
+        let config_dir = dirs::config_dir()
+            .map(|d| d.join("transcribe-rs"))
+            .unwrap_or_else(|| PathBuf::from("/tmp/transcribe-rs"));
+
+        WatchConfig {
+            enabled: false, // Disabled by default
+            watch_dir: config_dir.join("watch").to_string_lossy().to_string(),
+            extensions: vec![
+                "wav".to_string(),
+                "m4a".to_string(),
+                "mp3".to_string(),
+                "ogg".to_string(),
+                "flac".to_string(),
+                "webm".to_string(),
+            ],
+            debounce_ms: 1000, // 1 second debounce
         }
     }
 }
