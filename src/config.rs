@@ -23,6 +23,8 @@ pub struct Config {
     pub ocr: OcrConfig,
     #[serde(default)]
     pub watch: WatchConfig,
+    #[serde(default)]
+    pub hotkey: HotkeyConfig,
 }
 
 /// Audio recording configuration
@@ -155,6 +157,20 @@ pub struct WatchConfig {
     pub debounce_ms: u64,
 }
 
+/// Hotkey daemon configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotkeyConfig {
+    /// Modifier keys for the hotkey (e.g., ["super", "shift", "ctrl", "alt"])
+    pub modifiers: Vec<String>,
+    /// Main key for the hotkey (e.g., "q")
+    pub key: String,
+    /// Threshold in milliseconds to distinguish tap from hold
+    /// If released before this threshold, enters long-recording mode
+    pub tap_threshold_ms: u64,
+    /// Default prompt to use (can be overridden at runtime)
+    pub default_prompt: Option<String>,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -167,6 +183,7 @@ impl Default for Config {
             llm: LlmConfig::default(),
             ocr: OcrConfig::default(),
             watch: WatchConfig::default(),
+            hotkey: HotkeyConfig::default(),
         }
     }
 }
@@ -323,6 +340,22 @@ impl Default for WatchConfig {
                 "webm".to_string(),
             ],
             debounce_ms: 1000, // 1 second debounce
+        }
+    }
+}
+
+impl Default for HotkeyConfig {
+    fn default() -> Self {
+        HotkeyConfig {
+            modifiers: vec![
+                "super".to_string(),
+                "shift".to_string(),
+                "ctrl".to_string(),
+                "alt".to_string(),
+            ],
+            key: "e".to_string(),
+            tap_threshold_ms: 700,
+            default_prompt: Some("clean".to_string()),
         }
     }
 }

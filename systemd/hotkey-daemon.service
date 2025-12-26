@@ -1,0 +1,21 @@
+[Unit]
+Description=Transcribe-rs Hotkey Daemon (evdev-based)
+Documentation=https://github.com/sebkouba/transcribe-rs-v2
+After=graphical-session.target
+Wants=recording-daemon.service transcribe-daemon.service
+
+[Service]
+Type=simple
+ExecStart=%h/code/cloned/transcribe-rs-v2/target/release/hotkey-daemon
+Restart=on-failure
+RestartSec=3
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Security: No network access needed
+# Note: Requires user to be in 'input' group for evdev access
+
+[Install]
+WantedBy=default.target
