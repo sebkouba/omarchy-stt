@@ -113,26 +113,50 @@ fn parse_key(s: &str) -> Option<Key> {
 }
 
 /// Find keyboard devices
+/// Checks for virtual keyboards (kanata, kmonad) first, then falls back to physical keyboards
 fn find_keyboard_devices() -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut devices: Vec<PathBuf> = Vec::new();
+
+    // First, check for virtual keyboard remappers (kanata, kmonad, etc.)
+    // These sit between physical keyboard and applications, so we need to listen to them
+    for entry in std::fs::read_dir("/dev/input")? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with("event") {
+                // Read the device name from sysfs
+                let sysfs_name = format!("/sys/class/input/{}/device/name", name);
+                if let Ok(device_name) = std::fs::read_to_string(&sysfs_name) {
+                    let device_name = device_name.trim().to_lowercase();
+                    // Check for known virtual keyboard remappers
+                    if device_name.contains("kanata")
+                        || device_name.contains("kmonad")
+                        || device_name.contains("keyd")
+                    {
+                        println!("Found virtual keyboard remapper: {} at {:?}", device_name, path);
+                        devices.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    // If we found virtual keyboards, use those (they intercept physical keyboard events)
+    if !devices.is_empty() {
+        return Ok(devices);
+    }
+
+    // Fallback: try physical keyboards via by-id symlinks
     let pattern = "/dev/input/by-id/*-kbd";
-    let devices: Vec<PathBuf> = glob::glob(pattern)?
+    let physical_devices: Vec<PathBuf> = glob::glob(pattern)?
         .filter_map(|entry| entry.ok())
         .collect();
 
-    if devices.is_empty() {
-        // Fallback: try to find any event device that looks like a keyboard
-        let fallback_pattern = "/dev/input/by-id/*-event-kbd";
-        let fallback_devices: Vec<PathBuf> = glob::glob(fallback_pattern)?
-            .filter_map(|entry| entry.ok())
-            .collect();
-
-        if fallback_devices.is_empty() {
-            return Err("No keyboard devices found. Make sure you're in the 'input' group.".into());
-        }
-        return Ok(fallback_devices);
+    if physical_devices.is_empty() {
+        return Err("No keyboard devices found. Make sure you're in the 'input' group.".into());
     }
 
-    Ok(devices)
+    Ok(physical_devices)
 }
 
 /// Start recording via the recording daemon
@@ -361,9 +385,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Find keyboard devices
     let devices = find_keyboard_devices()?;
-    info!("Found {} keyboard device(s)", devices.len());
+    println!("Found {} keyboard device(s):", devices.len());
     for device in &devices {
-        info!("  - {:?}", device);
+        println!("  - {:?}", device);
     }
 
     // Create shortcut listener
@@ -372,12 +396,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Register main hotkey
     let main_shortcut = Shortcut::new(&modifiers, key);
     listener.add(main_shortcut.clone());
-    info!("Registered main hotkey");
+    println!("Registered main hotkey: {:?} + {:?}", modifiers, key);
 
     // Register Escape key for cancellation (no modifiers)
     let escape_shortcut = Shortcut::new(&[], Key::KeyEsc);
     listener.add(escape_shortcut.clone());
-    info!("Registered Escape key for cancellation");
+    println!("Registered Escape key for cancellation");
+
 
     // Create event stream
     let stream = listener.listen(&devices)?;
@@ -405,12 +430,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Tap threshold: {}ms", config.hotkey.tap_threshold_ms);
 
     while running.load(Ordering::SeqCst) {
-        // Use tokio::select! to handle both events and shutdown
-        tokio::select! {
-            Some(event) = stream.next() => {
+        match stream.next().await {
+            Some(event) => {
                 let is_main_hotkey = event.shortcut == main_shortcut;
                 let is_escape = event.shortcut == escape_shortcut;
-
                 debug!("Event: {:?} state={:?}", event, state);
 
                 match (&state, event.state, is_main_hotkey, is_escape) {
@@ -443,11 +466,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         } else {
                             // Hold detected - normal push-to-talk
                             info!("Hold detected - processing transcription");
-                            match process_transcription(&config, prompt_name) {
-                                Ok(_) => info!("Transcription processed successfully"),
-                                Err(e) => {
+                            // Run in blocking task to avoid tokio runtime conflicts
+                            let config_clone = config.clone();
+                            let prompt_clone = prompt_name.map(|s| s.to_string());
+                            let result = tokio::task::spawn_blocking(move || {
+                                process_transcription(&config_clone, prompt_clone.as_deref())
+                                    .map_err(|e| e.to_string())
+                            }).await;
+                            match result {
+                                Ok(Ok(_)) => info!("Transcription processed successfully"),
+                                Ok(Err(e)) => {
                                     error!("Transcription failed: {}", e);
                                     notifications::notify_error(&format!("Error: {}", e)).ok();
+                                }
+                                Err(e) => {
+                                    error!("Task panicked: {}", e);
                                 }
                             }
                             state = RecordingState::Idle;
@@ -456,12 +489,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                     // LONG RECORDING + Hotkey pressed -> Finish recording
                     (RecordingState::LongRecording, ShortcutState::Pressed, true, _) => {
-                        info!("Hotkey pressed in long recording mode - finishing");
-                        match process_transcription(&config, prompt_name) {
-                            Ok(_) => info!("Transcription processed successfully"),
-                            Err(e) => {
+                        info!("Long recording finished - processing");
+                        let config_clone = config.clone();
+                        let prompt_clone = prompt_name.map(|s| s.to_string());
+                        let result = tokio::task::spawn_blocking(move || {
+                            process_transcription(&config_clone, prompt_clone.as_deref())
+                                .map_err(|e| e.to_string())
+                        }).await;
+                        match result {
+                            Ok(Ok(_)) => info!("Transcription processed successfully"),
+                            Ok(Err(e)) => {
                                 error!("Transcription failed: {}", e);
                                 notifications::notify_error(&format!("Error: {}", e)).ok();
+                            }
+                            Err(e) => {
+                                error!("Task panicked: {}", e);
                             }
                         }
                         state = RecordingState::Idle;
@@ -478,13 +520,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     // Ignore other combinations
-                    _ => {
-                        debug!("Ignoring event in current state");
-                    }
+                    _ => {}
                 }
             }
-            _ = tokio::signal::ctrl_c() => {
-                info!("Received Ctrl+C, shutting down...");
+            None => {
+                info!("Event stream ended");
                 break;
             }
         }
