@@ -30,6 +30,7 @@ const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
 const SAMPLE_RATE: u32 = 16000; // 16kHz
 const BUFFER_DURATION_SECONDS: usize = 120; // 2 minutes
 const OUTPUT_WAV_PATH: &str = "/tmp/ptt_current.wav";
+const AUDIO_LEVEL_PATH: &str = "/tmp/ptt_audio_level";
 
 /// Daemon state
 struct DaemonState {
@@ -37,15 +38,17 @@ struct DaemonState {
     ffmpeg_process: Option<Child>,
     buffer: SharedBuffer,
     start_time: Instant,
+    is_recording: Arc<AtomicBool>,
 }
 
 impl DaemonState {
-    fn new(buffer: SharedBuffer) -> Self {
+    fn new(buffer: SharedBuffer, is_recording: Arc<AtomicBool>) -> Self {
         Self {
             recording_start_index: None,
             ffmpeg_process: None,
             buffer,
             start_time: Instant::now(),
+            is_recording,
         }
     }
 }
@@ -81,11 +84,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create shared buffer
     let buffer = Arc::new(Mutex::new(CircularBuffer::new(buffer_capacity)));
 
+    // Create shared recording flag for audio level reporting
+    let is_recording = Arc::new(AtomicBool::new(false));
+
     // Create daemon state
-    let state = Arc::new(Mutex::new(DaemonState::new(Arc::clone(&buffer))));
+    let state = Arc::new(Mutex::new(DaemonState::new(
+        Arc::clone(&buffer),
+        Arc::clone(&is_recording),
+    )));
 
     // Spawn FFmpeg and reader thread
-    spawn_ffmpeg_and_reader(&microphone, Arc::clone(&buffer), Arc::clone(&state))?;
+    spawn_ffmpeg_and_reader(
+        &microphone,
+        Arc::clone(&buffer),
+        Arc::clone(&state),
+        Arc::clone(&is_recording),
+    )?;
 
     // Setup signal handlers
     let running = Arc::new(AtomicBool::new(true));
@@ -112,6 +126,7 @@ fn spawn_ffmpeg_and_reader(
     microphone: &str,
     buffer: SharedBuffer,
     state: SharedState,
+    is_recording: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     debug!("Spawning FFmpeg process...");
 
@@ -143,13 +158,40 @@ fn spawn_ffmpeg_and_reader(
     }
 
     // Spawn reader thread
-    spawn_reader_thread(buffer, state);
+    spawn_reader_thread(buffer, state, is_recording);
 
     Ok(())
 }
 
+/// Calculate RMS (root mean square) audio level from samples
+/// Returns a value from 0.0 to 1.0
+fn calculate_rms(samples: &[i16]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum_squares: f64 = samples.iter().map(|&s| (s as f64).powi(2)).sum();
+    let rms = (sum_squares / samples.len() as f64).sqrt();
+    // Normalize to 0.0-1.0 range (i16 max is 32767)
+    (rms / 32767.0) as f32
+}
+
+/// Write audio level to file for eww widget
+fn write_audio_level(level: f32) {
+    // Write level as percentage (0-100)
+    let level_percent = (level * 100.0).min(100.0) as u8;
+    if let Err(e) = fs::write(AUDIO_LEVEL_PATH, format!("{}", level_percent)) {
+        // Only log occasionally to avoid spam
+        debug!("Failed to write audio level: {}", e);
+    }
+}
+
+/// Clear audio level file when not recording
+fn clear_audio_level() {
+    fs::remove_file(AUDIO_LEVEL_PATH).ok();
+}
+
 /// Spawn thread to continuously read from FFmpeg stdout
-fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
+fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState, is_recording: Arc<AtomicBool>) {
     thread::spawn(move || {
         debug!("Reader thread started");
 
@@ -170,6 +212,7 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
 
                 let mut chunk = vec![0u8; 16384]; // 8192 samples = 0.5 seconds @ 16kHz
                 let mut samples_written = 0;
+                let mut level_update_counter = 0u32;
 
                 loop {
                     match stdout.read(&mut chunk) {
@@ -193,6 +236,17 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState) {
                             {
                                 let mut buf = buffer.lock().unwrap();
                                 buf.write_samples(&samples);
+                            }
+
+                            // Update audio level for eww widget when recording
+                            // Update every ~50ms (800 samples at 16kHz)
+                            level_update_counter += sample_count as u32;
+                            if level_update_counter >= 800 {
+                                level_update_counter = 0;
+                                if is_recording.load(Ordering::Relaxed) {
+                                    let level = calculate_rms(&samples);
+                                    write_audio_level(level);
+                                }
                             }
 
                             samples_written += samples.len();
@@ -369,6 +423,9 @@ fn handle_start(state: SharedState) -> Value {
 
     state_guard.recording_start_index = Some(start_index);
 
+    // Set recording flag for audio level updates
+    state_guard.is_recording.store(true, Ordering::Relaxed);
+
     debug!("Recording started at index: {}", start_index);
 
     json!({"ok": true, "start_index": start_index})
@@ -392,6 +449,10 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
     if state_guard.recording_start_index != Some(start_index) {
         return json!({"ok": false, "error": "Not recording or index mismatch"});
     }
+
+    // Clear recording flag and audio level file
+    state_guard.is_recording.store(false, Ordering::Relaxed);
+    clear_audio_level();
 
     // Get current buffer index and extract samples
     let samples = {

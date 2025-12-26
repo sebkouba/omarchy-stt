@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
-    clipboard, config::Config, dictation_logger, file_chat,
+    clipboard, config::Config, dictation_logger, eww_widget, file_chat,
     gui::{is_window_running, recover_orphaned_conversation, ConversationState, ConversationWindow},
     logging, notifications, ocr, paste, performance_log, recording, timing,
 };
@@ -237,6 +237,9 @@ fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file
         warn!("Notification failed: {}", e);
     }
 
+    // Show eww recording indicator widget
+    eww_widget::show_recording_widget();
+
     println!("🎤 Recording started...");
     info!("=== HANDLE START COMPLETE ===");
     Ok(())
@@ -244,6 +247,9 @@ fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file
 
 fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     info!("=== HANDLE STOP ===");
+
+    // Hide eww recording indicator widget immediately
+    eww_widget::hide_recording_widget();
 
     // Save start timestamp for performance tracking (measures from stop command to paste)
     if let Err(e) = timing::save_start_time() {

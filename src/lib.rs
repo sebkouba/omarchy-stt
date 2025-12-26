@@ -59,6 +59,7 @@ pub mod clipboard;
 pub mod config;
 pub mod conversation_history;
 pub mod dictation_logger;
+pub mod eww_widget;
 pub mod file_chat;
 pub mod file_watcher;
 pub mod groq;

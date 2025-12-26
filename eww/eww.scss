@@ -1,0 +1,19 @@
+// Recording indicator styles for transcribe-rs-v2
+
+* {
+  all: unset;
+}
+
+.level-container {
+  background-color: rgba(30, 30, 46, 0.9);
+  border-radius: 10px;
+  min-width: 200px;
+  min-height: 24px;
+  padding: 4px;
+}
+
+.level-bar {
+  background-color: #a6e3a1;
+  border-radius: 6px;
+  min-height: 16px;
+}
