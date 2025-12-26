@@ -160,15 +160,27 @@ pub struct WatchConfig {
 /// Hotkey daemon configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeyConfig {
-    /// Modifier keys for the hotkey (e.g., ["super", "shift", "ctrl", "alt"])
+    /// Modifier keys for all hotkeys (e.g., ["super", "shift", "ctrl", "alt"])
     pub modifiers: Vec<String>,
-    /// Main key for the hotkey (e.g., "q")
-    pub key: String,
     /// Threshold in milliseconds to distinguish tap from hold
-    /// If released before this threshold, enters long-recording mode
     pub tap_threshold_ms: u64,
-    /// Default prompt to use (can be overridden at runtime)
-    pub default_prompt: Option<String>,
+    /// List of hotkey bindings
+    pub bindings: Vec<HotkeyBinding>,
+}
+
+/// A single hotkey binding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotkeyBinding {
+    /// The key for this binding (e.g., "q", "e", "r")
+    pub key: String,
+    /// Prompt to use for LLM processing (None = raw transcription)
+    pub prompt: Option<String>,
+    /// Enable OCR screen capture for context
+    #[serde(default)]
+    pub ocr: bool,
+    /// Enable GUI conversation mode
+    #[serde(default)]
+    pub gui: bool,
 }
 
 impl Default for Config {
@@ -353,9 +365,39 @@ impl Default for HotkeyConfig {
                 "ctrl".to_string(),
                 "alt".to_string(),
             ],
-            key: "e".to_string(),
             tap_threshold_ms: 700,
-            default_prompt: Some("clean".to_string()),
+            bindings: vec![
+                HotkeyBinding {
+                    key: "q".to_string(),
+                    prompt: Some("clean".to_string()),
+                    ocr: false,
+                    gui: false,
+                },
+                HotkeyBinding {
+                    key: "e".to_string(),
+                    prompt: None, // Raw transcription
+                    ocr: false,
+                    gui: false,
+                },
+                HotkeyBinding {
+                    key: "w".to_string(),
+                    prompt: Some("ask".to_string()),
+                    ocr: false,
+                    gui: false,
+                },
+                HotkeyBinding {
+                    key: "r".to_string(),
+                    prompt: Some("ocr".to_string()),
+                    ocr: true,
+                    gui: false,
+                },
+                HotkeyBinding {
+                    key: "t".to_string(),
+                    prompt: None,
+                    ocr: false,
+                    gui: true,
+                },
+            ],
         }
     }
 }

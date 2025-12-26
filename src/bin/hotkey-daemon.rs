@@ -11,8 +11,8 @@
 use evdev_shortcut::{Key, Modifier, Shortcut, ShortcutListener, ShortcutState};
 use futures::StreamExt;
 use log::{debug, error, info, warn};
+use std::collections::HashMap;
 use std::error::Error;
-use std::fs;
 use std::path::PathBuf;
 use std::pin::pin;
 use std::process::Command;
@@ -20,19 +20,31 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use transcribe_rs::{
-    clipboard, config::Config, eww_widget, notifications, paste, recording,
+    clipboard, config::Config, eww_widget, paste, recording,
     transcription_corrections::TranscriptionCorrector,
 };
 
+use transcribe_rs::config::HotkeyBinding;
+
+/// Active binding info stored during recording
+#[derive(Debug, Clone)]
+struct ActiveBinding {
+    key: Key,
+    binding: HotkeyBinding,
+}
+
 /// State machine for the hotkey daemon
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 enum RecordingState {
     /// Not recording, waiting for hotkey press
     Idle,
     /// Recording in push-to-talk mode (hotkey held)
-    Recording { press_time: Instant },
+    Recording {
+        press_time: Instant,
+        active: ActiveBinding,
+    },
     /// Long recording mode (hotkey was tapped, waiting for completion)
-    LongRecording,
+    LongRecording { active: ActiveBinding },
 }
 
 /// Parse a modifier string to evdev Modifier
@@ -163,7 +175,6 @@ fn find_keyboard_devices() -> Result<Vec<PathBuf>, Box<dyn Error>> {
 fn start_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     info!("Starting recording...");
     recording::start_recording(&config.audio)?;
-    notifications::notify_recording_started()?;
     eww_widget::show_recording_widget();
     Ok(())
 }
@@ -172,7 +183,6 @@ fn start_recording(config: &Config) -> Result<(), Box<dyn Error>> {
 fn stop_recording(config: &Config) -> Result<PathBuf, Box<dyn Error>> {
     info!("Stopping recording...");
     eww_widget::hide_recording_widget();
-    notifications::notify_recording_stopped()?;
     let audio_file = recording::stop_recording(&config.audio)?;
     Ok(audio_file)
 }
@@ -182,12 +192,8 @@ fn cancel_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     info!("Cancelling recording...");
     eww_widget::hide_recording_widget();
 
-    // Check if we're actually recording
-    if std::path::Path::new(&config.audio.recording_pid_file).exists() {
-        // Remove the recording state file to cancel
-        fs::remove_file(&config.audio.recording_pid_file)?;
-        notifications::notify("🚫 Cancelled", "Recording cancelled", 1500)?;
-    }
+    // Use the cancel command which unconditionally resets daemon state
+    recording::cancel_recording(&config.audio)?;
 
     Ok(())
 }
@@ -292,26 +298,11 @@ fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
     // Copy to clipboard
     clipboard::copy_to_clipboard(&text)?;
 
-    // Create preview
-    let preview = if text.len() > 100 {
-        format!("{}...", &text[..100])
-    } else {
-        text.clone()
-    };
-
     // Auto-paste if enabled
     if config.integration.auto_paste {
-        match paste::paste_from_clipboard() {
-            Ok(_) => {
-                notifications::notify_transcription_pasted(&preview)?;
-            }
-            Err(e) => {
-                warn!("Paste failed: {}", e);
-                notifications::notify_transcription_copied(&preview)?;
-            }
+        if let Err(e) = paste::paste_from_clipboard() {
+            warn!("Paste failed: {}", e);
         }
-    } else {
-        notifications::notify_transcription_copied(&preview)?;
     }
 
     Ok(())
@@ -325,7 +316,6 @@ fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(
     // Transcribe
     let transcription = transcribe_file(&audio_file)?;
     if transcription.is_empty() {
-        notifications::notify_error("No speech detected")?;
         return Err("Empty transcription".into());
     }
 
@@ -363,25 +353,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::load()?;
     info!("Configuration loaded");
 
-    // Parse hotkey from config
+    // Parse modifiers from config
     let modifiers: Vec<Modifier> = config
         .hotkey
         .modifiers
         .iter()
         .filter_map(|s| parse_modifier(s))
         .collect();
-
-    let key = parse_key(&config.hotkey.key).ok_or_else(|| {
-        format!(
-            "Invalid hotkey key: '{}'. Check your config.",
-            config.hotkey.key
-        )
-    })?;
-
-    info!(
-        "Hotkey configured: {:?} + {:?}",
-        config.hotkey.modifiers, config.hotkey.key
-    );
 
     // Find keyboard devices
     let devices = find_keyboard_devices()?;
@@ -393,16 +371,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Create shortcut listener
     let listener = ShortcutListener::new();
 
-    // Register main hotkey
-    let main_shortcut = Shortcut::new(&modifiers, key);
-    listener.add(main_shortcut.clone());
-    println!("Registered main hotkey: {:?} + {:?}", modifiers, key);
+    // Register all hotkey bindings and build a lookup map
+    let mut binding_map: HashMap<Key, HotkeyBinding> = HashMap::new();
+
+    println!("Registering {} hotkey binding(s):", config.hotkey.bindings.len());
+    for binding in &config.hotkey.bindings {
+        if let Some(key) = parse_key(&binding.key) {
+            let shortcut = Shortcut::new(&modifiers, key);
+            listener.add(shortcut);
+            binding_map.insert(key, binding.clone());
+            println!(
+                "  - {:?}+{}: prompt={:?}, ocr={}, gui={}",
+                config.hotkey.modifiers,
+                binding.key,
+                binding.prompt,
+                binding.ocr,
+                binding.gui
+            );
+        } else {
+            eprintln!("Warning: Invalid key '{}' in binding, skipping", binding.key);
+        }
+    }
+
+    if binding_map.is_empty() {
+        return Err("No valid hotkey bindings configured".into());
+    }
 
     // Register Escape key for cancellation (no modifiers)
-    let escape_shortcut = Shortcut::new(&[], Key::KeyEsc);
-    listener.add(escape_shortcut.clone());
+    let escape_key = Key::KeyEsc;
+    let escape_shortcut = Shortcut::new(&[], escape_key);
+    listener.add(escape_shortcut);
     println!("Registered Escape key for cancellation");
-
 
     // Create event stream
     let stream = listener.listen(&devices)?;
@@ -420,97 +419,94 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // State machine
     let mut state = RecordingState::Idle;
     let tap_threshold = std::time::Duration::from_millis(config.hotkey.tap_threshold_ms);
-    let prompt_name = config.hotkey.default_prompt.as_deref();
 
     println!("Hotkey daemon running. Press Ctrl+C to stop.");
-    println!(
-        "Hotkey: {:?} + {}",
-        config.hotkey.modifiers, config.hotkey.key
-    );
     println!("Tap threshold: {}ms", config.hotkey.tap_threshold_ms);
 
     while running.load(Ordering::SeqCst) {
         match stream.next().await {
             Some(event) => {
-                let is_main_hotkey = event.shortcut == main_shortcut;
-                let is_escape = event.shortcut == escape_shortcut;
-                debug!("Event: {:?} state={:?}", event, state);
+                // Check if this is an escape key event
+                let is_escape = event.shortcut.key == escape_key;
 
-                match (&state, event.state, is_main_hotkey, is_escape) {
+                // Check if this is one of our registered hotkeys
+                let pressed_key = event.shortcut.key;
+                let binding_opt = binding_map.get(&pressed_key).cloned();
+
+                debug!("Event: key={:?} state={:?} binding={:?}", pressed_key, event.state, binding_opt.is_some());
+
+                match (&state, event.state, binding_opt, is_escape) {
                     // IDLE + Hotkey pressed -> Start recording
-                    (RecordingState::Idle, ShortcutState::Pressed, true, _) => {
-                        info!("Hotkey pressed - starting recording");
+                    (RecordingState::Idle, ShortcutState::Pressed, Some(binding), _) => {
+                        info!("Hotkey {:?} pressed - starting recording", pressed_key);
                         match start_recording(&config) {
                             Ok(_) => {
                                 state = RecordingState::Recording {
                                     press_time: Instant::now(),
+                                    active: ActiveBinding {
+                                        key: pressed_key,
+                                        binding,
+                                    },
                                 };
                             }
                             Err(e) => {
                                 error!("Failed to start recording: {}", e);
-                                notifications::notify_error(&format!("Start failed: {}", e)).ok();
                             }
                         }
                     }
 
-                    // RECORDING + Hotkey released -> Check tap vs hold
-                    (RecordingState::Recording { press_time }, ShortcutState::Released, true, _) => {
+                    // RECORDING + Same hotkey released -> Check tap vs hold
+                    (RecordingState::Recording { press_time, active }, ShortcutState::Released, Some(_), _)
+                        if pressed_key == active.key =>
+                    {
                         let duration = press_time.elapsed();
                         info!("Hotkey released after {:?}", duration);
 
                         if duration < tap_threshold {
                             // Tap detected - enter long recording mode
                             info!("Tap detected - entering long recording mode");
-                            notifications::notify("🎤 Long Recording", "Tap hotkey to finish, Escape to cancel", 2000).ok();
-                            state = RecordingState::LongRecording;
+                            state = RecordingState::LongRecording {
+                                active: active.clone(),
+                            };
                         } else {
                             // Hold detected - normal push-to-talk
                             info!("Hold detected - processing transcription");
-                            // Run in blocking task to avoid tokio runtime conflicts
                             let config_clone = config.clone();
-                            let prompt_clone = prompt_name.map(|s| s.to_string());
+                            let prompt_clone = active.binding.prompt.clone();
                             let result = tokio::task::spawn_blocking(move || {
                                 process_transcription(&config_clone, prompt_clone.as_deref())
                                     .map_err(|e| e.to_string())
                             }).await;
                             match result {
                                 Ok(Ok(_)) => info!("Transcription processed successfully"),
-                                Ok(Err(e)) => {
-                                    error!("Transcription failed: {}", e);
-                                    notifications::notify_error(&format!("Error: {}", e)).ok();
-                                }
-                                Err(e) => {
-                                    error!("Task panicked: {}", e);
-                                }
+                                Ok(Err(e)) => error!("Transcription failed: {}", e),
+                                Err(e) => error!("Task panicked: {}", e),
                             }
                             state = RecordingState::Idle;
                         }
                     }
 
-                    // LONG RECORDING + Hotkey pressed -> Finish recording
-                    (RecordingState::LongRecording, ShortcutState::Pressed, true, _) => {
+                    // LONG RECORDING + Same hotkey pressed -> Finish recording
+                    (RecordingState::LongRecording { active }, ShortcutState::Pressed, Some(_), _)
+                        if pressed_key == active.key =>
+                    {
                         info!("Long recording finished - processing");
                         let config_clone = config.clone();
-                        let prompt_clone = prompt_name.map(|s| s.to_string());
+                        let prompt_clone = active.binding.prompt.clone();
                         let result = tokio::task::spawn_blocking(move || {
                             process_transcription(&config_clone, prompt_clone.as_deref())
                                 .map_err(|e| e.to_string())
                         }).await;
                         match result {
                             Ok(Ok(_)) => info!("Transcription processed successfully"),
-                            Ok(Err(e)) => {
-                                error!("Transcription failed: {}", e);
-                                notifications::notify_error(&format!("Error: {}", e)).ok();
-                            }
-                            Err(e) => {
-                                error!("Task panicked: {}", e);
-                            }
+                            Ok(Err(e)) => error!("Transcription failed: {}", e),
+                            Err(e) => error!("Task panicked: {}", e),
                         }
                         state = RecordingState::Idle;
                     }
 
                     // LONG RECORDING + Escape pressed -> Cancel
-                    (RecordingState::LongRecording, ShortcutState::Pressed, _, true) => {
+                    (RecordingState::LongRecording { .. }, ShortcutState::Pressed, _, true) => {
                         info!("Escape pressed - cancelling recording");
                         match cancel_recording(&config) {
                             Ok(_) => info!("Recording cancelled"),
@@ -531,7 +527,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Cleanup on exit
-    if state != RecordingState::Idle {
+    if !matches!(state, RecordingState::Idle) {
         warn!("Cleaning up recording state on exit");
         cancel_recording(&config).ok();
     }

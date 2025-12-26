@@ -155,6 +155,45 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
     Ok(PathBuf::from(wav_path))
 }
 
+/// Cancel recording - unconditionally reset daemon state
+/// This is used to recover from desync between client and daemon state
+pub fn cancel_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
+    info!("=== Recording cancel requested ===");
+
+    // Always remove local state file first
+    if Path::new(&config.recording_pid_file).exists() {
+        fs::remove_file(&config.recording_pid_file)?;
+        debug!("Removed local state file");
+    }
+
+    // Connect to daemon and send cancel command
+    match UnixStream::connect(DAEMON_SOCKET) {
+        Ok(mut stream) => {
+            let request = serde_json::json!({"command": "cancel"});
+            writeln!(stream, "{}", request)?;
+            debug!("Sent cancel request");
+
+            // Read response
+            let mut reader = BufReader::new(stream);
+            let mut response_line = String::new();
+            reader.read_line(&mut response_line)?;
+
+            debug!("Received response: {}", response_line.trim());
+
+            let response: serde_json::Value = serde_json::from_str(&response_line)?;
+            let was_recording = response["was_recording"].as_bool().unwrap_or(false);
+
+            info!("Recording cancelled (daemon was_recording: {})", was_recording);
+            Ok(())
+        }
+        Err(e) => {
+            // Daemon not running, just clean up local state
+            warn!("Could not connect to daemon (may not be running): {}", e);
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

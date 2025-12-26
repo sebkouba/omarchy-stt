@@ -404,6 +404,7 @@ fn handle_request(request: Value, state: SharedState) -> Value {
     match command {
         "start" => handle_start(state),
         "stop" => handle_stop(request, state),
+        "cancel" => handle_cancel(state),
         "ping" => handle_ping(state),
         _ => json!({"ok": false, "error": format!("Unknown command: {}", command)}),
     }
@@ -526,6 +527,22 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
             json!({"ok": false, "error": format!("Failed to write WAV: {}", e)})
         }
     }
+}
+
+/// Handle cancel command - unconditionally reset recording state
+fn handle_cancel(state: SharedState) -> Value {
+    let mut state_guard = state.lock().unwrap();
+
+    let was_recording = state_guard.recording_start_index.is_some();
+
+    // Unconditionally clear recording state
+    state_guard.recording_start_index = None;
+    state_guard.is_recording.store(false, Ordering::Relaxed);
+    clear_audio_level();
+
+    debug!("Recording cancelled (was_recording: {})", was_recording);
+
+    json!({"ok": true, "was_recording": was_recording})
 }
 
 /// Handle ping command (health check)
