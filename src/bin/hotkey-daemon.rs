@@ -433,7 +433,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let pressed_key = event.shortcut.key;
                 let binding_opt = binding_map.get(&pressed_key).cloned();
 
-                debug!("Event: key={:?} state={:?} binding={:?}", pressed_key, event.state, binding_opt.is_some());
+                println!("DEBUG Event: key={:?} state={:?} binding={:?}", pressed_key, event.state, binding_opt.is_some());
 
                 match (&state, event.state, binding_opt, is_escape) {
                     // IDLE + Hotkey pressed -> Start recording
