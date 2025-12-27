@@ -1,11 +1,15 @@
-//! eww widget control for recording indicator
+//! eww widget control for recording and loading indicators
 //!
-//! Controls the eww recording indicator widget that shows audio levels
-//! during push-to-talk recording.
+//! Controls the eww widgets that show:
+//! - Recording: audio levels during push-to-talk (green bar)
+//! - Loading: transcription progress (blue bar)
 
 use log::{debug, warn};
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+
+const PROGRESS_FILE: &str = "/tmp/ptt_transcription_progress";
 
 /// Get the path to the eww config directory
 fn get_eww_config_path() -> PathBuf {
@@ -27,7 +31,7 @@ fn get_eww_config_path() -> PathBuf {
     project_path
 }
 
-/// Open the recording indicator widget
+/// Open the recording indicator widget (green audio level bar)
 pub fn show_recording_widget() {
     let config_path = get_eww_config_path();
     debug!("Opening eww recording widget from {:?}", config_path);
@@ -52,5 +56,49 @@ pub fn hide_recording_widget() {
     {
         Ok(_) => debug!("Recording widget closed"),
         Err(e) => warn!("Failed to close recording widget: {}", e),
+    }
+}
+
+/// Open the loading indicator widget (blue progress bar)
+pub fn show_loading_widget() {
+    let config_path = get_eww_config_path();
+    debug!("Opening eww loading widget from {:?}", config_path);
+
+    // Initialize progress file to 0
+    if let Err(e) = fs::write(PROGRESS_FILE, "0") {
+        warn!("Failed to initialize progress file: {}", e);
+    }
+
+    match Command::new("eww")
+        .args(["open", "loading", "--config", config_path.to_str().unwrap_or(".")])
+        .spawn()
+    {
+        Ok(_) => debug!("Loading widget opened"),
+        Err(e) => warn!("Failed to open loading widget: {}", e),
+    }
+}
+
+/// Close the loading indicator widget
+pub fn hide_loading_widget() {
+    let config_path = get_eww_config_path();
+    debug!("Closing eww loading widget");
+
+    // Clean up progress file
+    fs::remove_file(PROGRESS_FILE).ok();
+
+    match Command::new("eww")
+        .args(["close", "loading", "--config", config_path.to_str().unwrap_or(".")])
+        .spawn()
+    {
+        Ok(_) => debug!("Loading widget closed"),
+        Err(e) => warn!("Failed to close loading widget: {}", e),
+    }
+}
+
+/// Update the loading progress (0-100)
+pub fn set_loading_progress(progress: u8) {
+    let progress = progress.min(100);
+    if let Err(e) = fs::write(PROGRESS_FILE, progress.to_string()) {
+        warn!("Failed to update progress file: {}", e);
     }
 }

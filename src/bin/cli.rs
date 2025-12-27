@@ -274,8 +274,9 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
 
     // Stop recording (may take 0.6-1.6s depending on audio length)
     debug!("Stopping recording...");
-    let audio_file = recording::stop_recording(&config.audio)?;
-    debug!("Audio file: {:?}", audio_file);
+    let recording_result = recording::stop_recording(&config.audio)?;
+    let audio_file = &recording_result.audio_file;
+    debug!("Audio file: {:?}, duration: {}ms", audio_file, recording_result.duration_ms);
 
     if let Some(ref mut m) = metrics {
         m.mark_recording_stop();
@@ -284,7 +285,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     // Transcribe using daemon client
     println!("📝 Transcribing...");
     debug!("Calling transcribe_file...");
-    let transcription = match transcribe_file(&audio_file) {
+    let transcription = match transcribe_file(audio_file) {
         Ok(t) => {
             debug!("Transcription received: {} chars", t.len());
             t

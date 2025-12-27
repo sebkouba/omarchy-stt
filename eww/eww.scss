@@ -1,4 +1,4 @@
-// Recording indicator styles for transcribe-rs-v2
+// Recording and loading indicator styles for transcribe-rs-v2
 
 * {
   all: unset;
@@ -12,8 +12,16 @@
   padding: 4px;
 }
 
+// Green bar for audio level during recording
 .level-bar {
   background-color: #a6e3a1;
+  border-radius: 6px;
+  min-height: 16px;
+}
+
+// Blue bar for transcription progress
+.loading-bar {
+  background-color: #89b4fa;
   border-radius: 6px;
   min-height: 16px;
 }

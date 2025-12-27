@@ -14,6 +14,17 @@ use std::path::{Path, PathBuf};
 
 const DAEMON_SOCKET: &str = "/tmp/transcribe-rs-v2-recording.sock";
 
+/// Result of stopping a recording, includes audio file and timing info
+#[derive(Debug, Clone)]
+pub struct RecordingResult {
+    /// Path to the WAV file
+    pub audio_file: PathBuf,
+    /// Recording duration in milliseconds
+    pub duration_ms: u64,
+    /// Number of samples recorded
+    pub samples: u64,
+}
+
 /// Start recording audio via daemon
 pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     info!("=== Recording start requested ===");
@@ -70,8 +81,8 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Stop recording and return the path to the audio file
-pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
+/// Stop recording and return the audio file path with timing info
+pub fn stop_recording(config: &AudioConfig) -> Result<RecordingResult, Box<dyn Error>> {
     info!("=== Recording stop requested ===");
 
     // Check if recording
@@ -152,7 +163,11 @@ pub fn stop_recording(config: &AudioConfig) -> Result<PathBuf, Box<dyn Error>> {
         return Err("WAV file too small - no audio data".into());
     }
 
-    Ok(PathBuf::from(wav_path))
+    Ok(RecordingResult {
+        audio_file: PathBuf::from(wav_path),
+        duration_ms,
+        samples,
+    })
 }
 
 /// Cancel recording - unconditionally reset daemon state

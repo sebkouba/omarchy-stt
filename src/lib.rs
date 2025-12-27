@@ -75,6 +75,7 @@ pub mod terminal_detect;
 pub mod timing;
 pub mod tools;
 pub mod transcription_corrections;
+pub mod transcription_timing;
 
 use std::path::Path;
 

@@ -22,9 +22,11 @@ use std::time::Instant;
 use transcribe_rs::{
     clipboard, config::Config, eww_widget, paste, recording,
     transcription_corrections::TranscriptionCorrector,
+    transcription_timing,
 };
 
 use transcribe_rs::config::HotkeyBinding;
+use transcribe_rs::recording::RecordingResult;
 
 /// Active binding info stored during recording
 #[derive(Debug, Clone)]
@@ -179,12 +181,12 @@ fn start_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Stop recording and get the audio file path
-fn stop_recording(config: &Config) -> Result<PathBuf, Box<dyn Error>> {
+/// Stop recording and get the audio file with timing info
+fn stop_recording(config: &Config) -> Result<RecordingResult, Box<dyn Error>> {
     info!("Stopping recording...");
     eww_widget::hide_recording_widget();
-    let audio_file = recording::stop_recording(&config.audio)?;
-    Ok(audio_file)
+    let result = recording::stop_recording(&config.audio)?;
+    Ok(result)
 }
 
 /// Cancel recording without transcribing
@@ -308,13 +310,87 @@ fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Run progress animation in background
+/// Returns a handle to stop the animation
+fn start_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        let estimated_duration = std::time::Duration::from_millis(estimated_ms);
+
+        // Show loading widget
+        eww_widget::show_loading_widget();
+
+        loop {
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let elapsed = start.elapsed();
+
+            if estimated_ms > 0 {
+                // Progress based on estimation
+                let progress = ((elapsed.as_millis() as f64 / estimated_ms as f64) * 100.0).min(100.0) as u8;
+                eww_widget::set_loading_progress(progress);
+
+                if elapsed >= estimated_duration {
+                    // If we exceed estimate, pulse between 80-100
+                    let pulse_offset = ((elapsed.as_millis() % 400) as f64 / 400.0 * 20.0) as u8;
+                    eww_widget::set_loading_progress(80 + pulse_offset);
+                }
+            } else {
+                // Fallback pulsing animation (no historical data)
+                let pulse_ms = transcription_timing::FALLBACK_PULSE_MS as u128;
+                let cycle_pos = (elapsed.as_millis() % (pulse_ms * 2)) as f64;
+                let progress = if cycle_pos < pulse_ms as f64 {
+                    (cycle_pos / pulse_ms as f64 * 100.0) as u8
+                } else {
+                    (100.0 - ((cycle_pos - pulse_ms as f64) / pulse_ms as f64 * 100.0)) as u8
+                };
+                eww_widget::set_loading_progress(progress);
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+
+        // Set to 100% briefly before closing
+        eww_widget::set_loading_progress(100);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        eww_widget::hide_loading_widget();
+    });
+}
+
 /// Process the complete transcription workflow
 fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(), Box<dyn Error>> {
-    // Stop recording and get audio file
-    let audio_file = stop_recording(config)?;
+    // Stop recording and get audio file with timing info
+    let recording_result = stop_recording(config)?;
+    let audio_file = &recording_result.audio_file;
+    let recording_ms = recording_result.duration_ms;
+
+    debug!("Recording duration: {}ms", recording_ms);
+
+    // Estimate transcription time based on historical data
+    let estimated_ms = transcription_timing::estimate_transcription_time(recording_ms).unwrap_or(0);
+    debug!("Estimated transcription time: {}ms", estimated_ms);
+
+    // Start progress animation in background (non-blocking)
+    let stop_animation = Arc::new(AtomicBool::new(false));
+    start_progress_animation(estimated_ms, stop_animation.clone());
+
+    // Start timing for calibration
+    let mut timer = transcription_timing::TranscriptionTimer::new(recording_ms);
+    timer.start();
 
     // Transcribe
-    let transcription = transcribe_file(&audio_file)?;
+    let transcription = transcribe_file(audio_file)?;
+
+    // Log timing for future estimation calibration
+    if let Some(actual_ms) = timer.stop_and_log() {
+        debug!("Actual transcription time: {}ms", actual_ms);
+    }
+
+    // Stop progress animation
+    stop_animation.store(true, Ordering::Relaxed);
+
     if transcription.is_empty() {
         return Err("Empty transcription".into());
     }

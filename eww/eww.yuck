@@ -1,12 +1,18 @@
-; Recording indicator widget for transcribe-rs-v2
-; Displays at bottom center of screen with audio level visualization
+; Recording and transcription indicator widgets for transcribe-rs-v2
+; Recording: displays at bottom center with audio level visualization (green)
+; Loading: displays transcription progress (blue)
 
 ; Poll audio level from file (updated by recording-daemon)
 ; Returns 0-100 integer, defaults to 0 if file missing
 (defpoll audio_level :interval "50ms"
   `cat /tmp/ptt_audio_level 2>/dev/null | grep -E '^[0-9]+$' || echo 0`)
 
-; Recording indicator widget - level bar inside container
+; Poll transcription progress from file (updated by hotkey-daemon)
+; Returns 0-100 integer, defaults to 0 if file missing
+(defpoll transcription_progress :interval "30ms"
+  `cat /tmp/ptt_transcription_progress 2>/dev/null | grep -E '^[0-9]+$' || echo 0`)
+
+; Recording indicator widget - green level bar for audio input
 (defwidget recording-indicator []
   (box :class "level-container"
        :orientation "h"
@@ -15,7 +21,16 @@
          :style "min-width: ${audio_level == "" ? 0 : audio_level * 2}px;"
          :halign "start")))
 
-; Window definition - positioned at bottom center
+; Loading indicator widget - blue progress bar for transcription
+(defwidget loading-indicator []
+  (box :class "level-container"
+       :orientation "h"
+       :halign "start"
+    (box :class "loading-bar"
+         :style "min-width: ${transcription_progress == "" ? 0 : transcription_progress * 2}px;"
+         :halign "start")))
+
+; Recording window - positioned at bottom center
 (defwindow recording
   :monitor 0
   :geometry (geometry :x "0%"
@@ -27,3 +42,16 @@
   :exclusive false
   :focusable false
   (recording-indicator))
+
+; Loading window - positioned at bottom center (same position as recording)
+(defwindow loading
+  :monitor 0
+  :geometry (geometry :x "0%"
+                      :y "50px"
+                      :width "200px"
+                      :height "50px"
+                      :anchor "bottom center")
+  :stacking "overlay"
+  :exclusive false
+  :focusable false
+  (loading-indicator))
