@@ -1,4 +1,4 @@
-// Recording and loading indicator styles for transcribe-rs-v2
+// Recording, loading, and API indicator styles for transcribe-rs-v2
 
 * {
   all: unset;
@@ -22,6 +22,13 @@
 // Blue bar for transcription progress
 .loading-bar {
   background-color: #89b4fa;
+  border-radius: 6px;
+  min-height: 16px;
+}
+
+// Yellow bar for API request progress
+.api-bar {
+  background-color: #f9e2af;
   border-radius: 6px;
   min-height: 16px;
 }

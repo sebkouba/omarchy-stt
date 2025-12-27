@@ -1,8 +1,9 @@
-//! eww widget control for recording and loading indicators
+//! eww widget control for recording, loading, and API indicators
 //!
 //! Controls the eww widgets that show:
 //! - Recording: audio levels during push-to-talk (green bar)
 //! - Loading: transcription progress (blue bar)
+//! - API: API request progress (yellow bar)
 
 use log::{debug, warn};
 use std::fs;
@@ -10,6 +11,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const PROGRESS_FILE: &str = "/tmp/ptt_transcription_progress";
+const API_PROGRESS_FILE: &str = "/tmp/ptt_api_progress";
 
 /// Get the path to the eww config directory
 fn get_eww_config_path() -> PathBuf {
@@ -100,5 +102,49 @@ pub fn set_loading_progress(progress: u8) {
     let progress = progress.min(100);
     if let Err(e) = fs::write(PROGRESS_FILE, progress.to_string()) {
         warn!("Failed to update progress file: {}", e);
+    }
+}
+
+/// Open the API indicator widget (yellow progress bar)
+pub fn show_api_widget() {
+    let config_path = get_eww_config_path();
+    debug!("Opening eww API widget from {:?}", config_path);
+
+    // Initialize progress file to 0
+    if let Err(e) = fs::write(API_PROGRESS_FILE, "0") {
+        warn!("Failed to initialize API progress file: {}", e);
+    }
+
+    match Command::new("eww")
+        .args(["open", "api", "--config", config_path.to_str().unwrap_or(".")])
+        .spawn()
+    {
+        Ok(_) => debug!("API widget opened"),
+        Err(e) => warn!("Failed to open API widget: {}", e),
+    }
+}
+
+/// Close the API indicator widget
+pub fn hide_api_widget() {
+    let config_path = get_eww_config_path();
+    debug!("Closing eww API widget");
+
+    // Clean up progress file
+    fs::remove_file(API_PROGRESS_FILE).ok();
+
+    match Command::new("eww")
+        .args(["close", "api", "--config", config_path.to_str().unwrap_or(".")])
+        .spawn()
+    {
+        Ok(_) => debug!("API widget closed"),
+        Err(e) => warn!("Failed to close API widget: {}", e),
+    }
+}
+
+/// Update the API progress (0-100)
+pub fn set_api_progress(progress: u8) {
+    let progress = progress.min(100);
+    if let Err(e) = fs::write(API_PROGRESS_FILE, progress.to_string()) {
+        warn!("Failed to update API progress file: {}", e);
     }
 }

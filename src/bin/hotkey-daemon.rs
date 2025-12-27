@@ -269,6 +269,18 @@ fn process_with_llm(
     debug!("Processing with LLM prompt: {}", prompt_name);
     let prompt = prompts::load_prompt(prompt_name)?;
 
+    // Estimate API time based on text length
+    let estimated_ms = transcription_timing::estimate_api_time(text.len()).unwrap_or(0);
+    debug!("Estimated API time: {}ms for {} chars", estimated_ms, text.len());
+
+    // Start API progress animation in background
+    let stop_animation = Arc::new(AtomicBool::new(false));
+    start_api_progress_animation(estimated_ms, stop_animation.clone());
+
+    // Start API timing for calibration
+    let mut api_timer = transcription_timing::ApiTimer::new(text.len());
+    api_timer.start();
+
     // Create client based on tool mapping
     let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
         if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
@@ -285,6 +297,15 @@ fn process_with_llm(
     };
 
     let result = client.complete_with_context(&prompt, text, prompt_name, None)?;
+
+    // Log API timing for future estimation
+    if let Some(actual_ms) = api_timer.stop_and_log() {
+        debug!("Actual API time: {}ms", actual_ms);
+    }
+
+    // Stop API progress animation
+    stop_animation.store(true, Ordering::Relaxed);
+
     Ok(result.text)
 }
 
@@ -356,6 +377,54 @@ fn start_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
         eww_widget::set_loading_progress(100);
         std::thread::sleep(std::time::Duration::from_millis(50));
         eww_widget::hide_loading_widget();
+    });
+}
+
+/// Run API progress animation in background (yellow bar)
+fn start_api_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        let estimated_duration = std::time::Duration::from_millis(estimated_ms);
+
+        // Show API widget
+        eww_widget::show_api_widget();
+
+        loop {
+            if stop_flag.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let elapsed = start.elapsed();
+
+            if estimated_ms > 0 {
+                // Progress based on estimation
+                let progress = ((elapsed.as_millis() as f64 / estimated_ms as f64) * 100.0).min(100.0) as u8;
+                eww_widget::set_api_progress(progress);
+
+                if elapsed >= estimated_duration {
+                    // If we exceed estimate, pulse between 80-100
+                    let pulse_offset = ((elapsed.as_millis() % 400) as f64 / 400.0 * 20.0) as u8;
+                    eww_widget::set_api_progress(80 + pulse_offset);
+                }
+            } else {
+                // Fallback pulsing animation (no historical data)
+                let pulse_ms = transcription_timing::FALLBACK_PULSE_MS as u128;
+                let cycle_pos = (elapsed.as_millis() % (pulse_ms * 2)) as f64;
+                let progress = if cycle_pos < pulse_ms as f64 {
+                    (cycle_pos / pulse_ms as f64 * 100.0) as u8
+                } else {
+                    (100.0 - ((cycle_pos - pulse_ms as f64) / pulse_ms as f64 * 100.0)) as u8
+                };
+                eww_widget::set_api_progress(progress);
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+
+        // Set to 100% briefly before closing
+        eww_widget::set_api_progress(100);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        eww_widget::hide_api_widget();
     });
 }
 

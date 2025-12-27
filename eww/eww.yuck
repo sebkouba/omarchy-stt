@@ -1,6 +1,7 @@
 ; Recording and transcription indicator widgets for transcribe-rs-v2
 ; Recording: displays at bottom center with audio level visualization (green)
 ; Loading: displays transcription progress (blue)
+; API: displays API request progress (yellow)
 
 ; Poll audio level from file (updated by recording-daemon)
 ; Returns 0-100 integer, defaults to 0 if file missing
@@ -11,6 +12,11 @@
 ; Returns 0-100 integer, defaults to 0 if file missing
 (defpoll transcription_progress :interval "30ms"
   `cat /tmp/ptt_transcription_progress 2>/dev/null | grep -E '^[0-9]+$' || echo 0`)
+
+; Poll API progress from file (updated by hotkey-daemon)
+; Returns 0-100 integer, defaults to 0 if file missing
+(defpoll api_progress :interval "30ms"
+  `cat /tmp/ptt_api_progress 2>/dev/null | grep -E '^[0-9]+$' || echo 0`)
 
 ; Recording indicator widget - green level bar for audio input
 (defwidget recording-indicator []
@@ -28,6 +34,15 @@
        :halign "start"
     (box :class "loading-bar"
          :style "min-width: ${transcription_progress == "" ? 0 : transcription_progress * 2}px;"
+         :halign "start")))
+
+; API indicator widget - yellow progress bar for API requests
+(defwidget api-indicator []
+  (box :class "level-container"
+       :orientation "h"
+       :halign "start"
+    (box :class "api-bar"
+         :style "min-width: ${api_progress == "" ? 0 : api_progress * 2}px;"
          :halign "start")))
 
 ; Recording window - positioned at bottom center
@@ -55,3 +70,16 @@
   :exclusive false
   :focusable false
   (loading-indicator))
+
+; API window - positioned at bottom center (same position as others)
+(defwindow api
+  :monitor 0
+  :geometry (geometry :x "0%"
+                      :y "50px"
+                      :width "200px"
+                      :height "50px"
+                      :anchor "bottom center")
+  :stacking "overlay"
+  :exclusive false
+  :focusable false
+  (api-indicator))
