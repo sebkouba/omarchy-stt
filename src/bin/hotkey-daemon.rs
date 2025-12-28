@@ -487,6 +487,14 @@ fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(
     // Skip clipboard/paste if a tool was called - the tool effect is the action
     if llm_result.tool_called {
         info!("Tool was executed, skipping clipboard/paste");
+        // Show notification with the LLM response confirming the action
+        use transcribe_rs::notifications;
+        let preview = if llm_result.text.len() > 100 {
+            format!("{}...", &llm_result.text[..100])
+        } else {
+            llm_result.text.clone()
+        };
+        notifications::notify("Tool executed", &preview, 3000).ok();
         return Ok(());
     }
 
