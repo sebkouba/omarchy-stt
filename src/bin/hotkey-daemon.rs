@@ -253,15 +253,21 @@ fn apply_corrections(text: &str, config: &Config) -> String {
     }
 }
 
+/// Result from LLM processing
+struct LlmResult {
+    text: String,
+    tool_called: bool,
+}
+
 /// Process transcription through LLM if prompt is configured
 fn process_with_llm(
     text: &str,
     prompt_name: Option<&str>,
     config: &Config,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<LlmResult, Box<dyn Error>> {
     let prompt_name = match prompt_name {
         Some(name) => name,
-        None => return Ok(text.to_string()),
+        None => return Ok(LlmResult { text: text.to_string(), tool_called: false }),
     };
 
     use transcribe_rs::{groq, prompts};
@@ -306,7 +312,7 @@ fn process_with_llm(
     // Stop API progress animation
     stop_animation.store(true, Ordering::Relaxed);
 
-    Ok(result.text)
+    Ok(LlmResult { text: result.text, tool_called: result.tool_called })
 }
 
 /// Copy to clipboard and paste
@@ -470,18 +476,24 @@ fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(
     let corrected = apply_corrections(&transcription, config);
 
     // Process with LLM if configured
-    let final_text = match process_with_llm(&corrected, prompt_name, config) {
-        Ok(text) => text,
+    let llm_result = match process_with_llm(&corrected, prompt_name, config) {
+        Ok(result) => result,
         Err(e) => {
             warn!("LLM processing failed: {}, using corrected text", e);
-            corrected
+            LlmResult { text: corrected, tool_called: false }
         }
     };
 
-    // Copy and paste
-    copy_and_paste(&final_text, config)?;
+    // Skip clipboard/paste if a tool was called - the tool effect is the action
+    if llm_result.tool_called {
+        info!("Tool was executed, skipping clipboard/paste");
+        return Ok(());
+    }
 
-    info!("Transcription complete: {}", final_text);
+    // Copy and paste
+    copy_and_paste(&llm_result.text, config)?;
+
+    info!("Transcription complete: {}", llm_result.text);
     Ok(())
 }
 
