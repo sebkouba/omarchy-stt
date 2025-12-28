@@ -16,27 +16,56 @@ You are a session analyst that reviews Claude Code conversations to extract valu
 3. **Read related existing lessons** for context
 4. **Write a lessons-learned document**
 
-## Step 1: Find the Session Transcript
+## Step 1: Find and Extract the Session Transcript
 
-The transcript is stored based on the project path. Execute these steps:
+Transcripts are stored in `~/.claude/projects/{folder-name}/` where folder name = project path with `/` replaced by `-`.
 
+**Step 1a: Find the transcript file**
+
+1. Run `pwd` to get current directory
+2. Convert path to folder name: `/home/seb/foo/bar` → `-home-seb-foo-bar`
+3. List transcripts (exclude agent-* files which are subagent transcripts):
+   ```bash
+   ls -lt ~/.claude/projects/-home-seb-foo-bar/*.jsonl | grep -v agent- | head -3
+   ```
+4. Note the most recent .jsonl file path
+
+**Step 1b: Extract and analyze the conversation**
+
+Transcripts are large (often 1MB+). Use the extraction script in phases:
+
+**Phase 1: Overview** - Get the conversation flow:
 ```bash
-# Get current project path and convert to Claude's folder format
-PROJECT_PATH=$(pwd)
-CLAUDE_FOLDER=$(echo "$PROJECT_PATH" | sed 's|/|-|g')
-CLAUDE_PROJECT_DIR="$HOME/.claude/projects/$CLAUDE_FOLDER"
-
-# Find the most recent main session (exclude agent-*.jsonl files)
-TRANSCRIPT=$(ls -t "$CLAUDE_PROJECT_DIR"/*.jsonl 2>/dev/null | grep -v 'agent-' | head -1)
-echo "Transcript: $TRANSCRIPT"
+.claude/scripts/extract-conversation.py /path/to/transcript.jsonl --max-lines 60
 ```
+- Shows conversation with line numbers
+- Lists any ERRORS encountered (with line numbers)
+- Identifies what was discussed, what was tried
 
-Then read and parse the transcript. The JSONL format has these message types:
-- `type: "user"` with `userType: "external"` - actual user messages
-- `type: "assistant"` - Claude's responses
-- Messages have `.message.content` which can be a string or array (tool uses/results)
+**Phase 2: Tool activity** - See what code changes were made:
+```bash
+.claude/scripts/extract-conversation.py /path/to/transcript.jsonl --tools
+```
+- Shows which files were Read/Edit/Write
+- Shows Bash commands that were run
+- Helps identify key implementation moments
 
-Focus on extracting the **conversational flow**: what the user asked, what approaches were tried, what worked, what didn't.
+**Phase 3: Deep dive** - Investigate specific moments:
+```bash
+.claude/scripts/extract-conversation.py /path/to/transcript.jsonl --line 150
+```
+- Shows full tool calls and results around line 150
+- Use this to understand specific errors, code changes, or debugging steps
+- The line numbers come from Phase 1 and 2 output
+
+**What to look for:**
+- What did the user ask for?
+- What approaches were tried?
+- What errors or problems came up? (check the ERRORS summary)
+- How were they debugged/solved? (deep dive into error lines)
+- What decisions were made and why?
+
+Focus on the **conversational flow and debugging process**, not just the final code.
 
 ## Step 2: Analyze Git Changes
 
