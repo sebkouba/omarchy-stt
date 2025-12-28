@@ -719,6 +719,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut key_pressed: HashMap<Key, bool> = HashMap::new();
     let tap_threshold = Duration::from_millis(config.hotkey.tap_threshold_ms);
     let mut is_grabbed = false;
+    let mut last_enter_submit: Option<Instant> = None;
+    let enter_debounce = Duration::from_millis(500);
 
     println!();
     println!("Hotkey daemon running. Press Ctrl+C to stop.");
@@ -883,7 +885,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                     // LONG RECORDING + Enter pressed -> Submit + Continue
                     (RecordingState::LongRecording { active }, true, _, _) if is_enter => {
+                        // Debounce: ignore Enter if we just processed one (prevents ydotool echo)
+                        if let Some(last) = last_enter_submit {
+                            if last.elapsed() < enter_debounce {
+                                eprintln!("[DEBOUNCE] Ignoring Enter ({}ms since last)", last.elapsed().as_millis());
+                                continue;
+                            }
+                        }
                         eprintln!("[TRANSITION] LongRecording: Enter pressed - submit + continue");
+                        last_enter_submit = Some(Instant::now());
 
                         // IMPORTANT: Ungrab before sending keys via ydotool, otherwise
                         // the simulated Ctrl+V and Enter will be captured by our grab!
