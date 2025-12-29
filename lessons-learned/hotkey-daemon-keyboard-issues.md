@@ -36,74 +36,84 @@ last_enter_submit = Some(Instant::now());
 
 Logs show `[DEBOUNCE] Ignoring Enter (Xms since last)` when ydotool echo is blocked.
 
-## Unsolved: Hotkey Key Leaks When Modifiers Released First
+## UNSOLVED: Hotkey Key Leaks When Modifiers Released First
 
 ### Problem
 In push-to-talk (Recording) mode, if user releases modifier keys (Ctrl+Shift+Alt+Super) before releasing the hotkey key (E), the E key leaks through to the focused application, producing "eeeeeee".
 
-Example:
-1. User presses Ctrl+Shift+Alt+Super+E → enters Recording mode (NOT grabbed)
-2. User releases Ctrl, Shift, Alt, Super (while still holding E)
-3. E is now just a plain keypress → goes to system → "eeee" appears
-4. User releases E → transcription happens, but damage is done
+**Status as of 2025-12-29:** This problem is **NOT SOLVED**. Multiple approaches were attempted and documented, but none successfully addressed the root cause.
 
-### Why It's Hard
+### Why It's Hard: Per-Device Modifier Tracking
 
-**Approach 1: Grab immediately on Recording entry**
-- Problem: System sees modifier PRESSES but not RELEASES (we capture them)
-- Result: Sticky modifiers - system thinks Ctrl/Shift/etc are still held
-- Side effect: Subsequent paste operations get mangled (Ctrl+Shift+Ctrl+V)
+The fundamental issue is that **Wayland compositors track modifier state separately for each input device**:
 
-**Approach 2: Send modifier releases via ydotool after ungrab**
-- Tried sending release events for all modifiers after ungrabbing
-- Still had timing issues and didn't fully resolve sticky state
+1. When we grab the kanata keyboard device, the compositor never sees modifier RELEASE events
+2. The compositor's view of kanata's modifier state freezes with all modifiers DOWN
+3. Sending synthetic releases via ydotool only affects the ydotool virtual device's state
+4. When we later send Ctrl+V via ydotool for pasting, the compositor sees:
+   - kanata device: Ctrl+Super still DOWN
+   - ydotool device: Ctrl+V
+   - Combined: Ctrl+Super+V (opens clipboard manager instead of pasting)
 
-### Potential Solution (Not Yet Implemented)
+**Root cause:** We cannot clear the kanata device's modifier state in the compositor because:
+- While grabbed, events don't reach compositor
+- After ungrab, keys are already physically released (no events to send)
+- ydotool operates on a different device that doesn't affect kanata's state
 
-A state machine approach that detects modifier release while hotkey is still held:
+See `lessons-learned/2025-12-29-wayland-modifier-state-device-isolation.md` for detailed analysis.
 
-1. In Recording state, track when modifiers are released
-2. When FIRST modifier is released AND hotkey key is still held:
-   - Immediately grab the keyboard (prevents E from leaking)
-   - Immediately send release events for ALL modifiers via ydotool (clears sticky state)
-   - Stay in Recording state (but now grabbed)
-3. When hotkey key is released:
-   - If grabbed, ungrab
-   - Process transcription normally
+### Approaches Attempted
 
-This requires careful ordering:
+#### 1. Immediate Grab with Synthetic Releases (Failed)
+
+**Idea:** Grab immediately on hotkey press, snapshot modifiers, send synthetic releases after ungrab.
+
+**Implementation (documented but not committed):**
+```rust
+/// Snapshot of modifiers at grab time
+struct GrabbedModifiers {
+    ctrl: bool, alt: bool, shift: bool, meta: bool,
+}
+
+/// Recording state includes grabbed modifiers
+Recording {
+    press_time: Instant,
+    active: ActiveBinding,
+    grabbed_modifiers: GrabbedModifiers,
+}
 ```
-T0: User presses Ctrl+Shift+Alt+Super+E → Recording (not grabbed)
-T1: User releases Ctrl (first modifier release detected)
-    → Grab keyboard NOW (Ctrl release goes to us, not system)
-    → Send ydotool releases for Ctrl+Shift+Alt+Super (clears system state)
-    → Now: keyboard grabbed, system modifier state clean
-T2: User releases remaining modifiers → captured by grab, ignored
-T3: User releases E → ungrab, process transcription
-```
 
-### State Machine Enhancement Needed
+**Why it failed:**
+- Synthetic releases from ydotool don't clear kanata device's stuck modifiers
+- Side effect: Subsequent paste operations become Ctrl+Super+V instead of Ctrl+V
+- Result: Clipboard manager opens instead of pasting
 
-Current states in `RecordingState` enum:
-- `Idle`
-- `Recording { press_time, active }` - NOT grabbed
-- `PendingGrab { active }` - waiting for all keys released before grab
-- `LongRecording { active }` - GRABBED
-- `PendingUngrab { should_transcribe, active }` - waiting for hotkey release
+#### 2. Grab-on-First-Modifier-Release (Proposed, Not Implemented)
 
-May need to add:
-- `RecordingGrabbed { press_time, active }` - Recording but grabbed due to early modifier release
+**Idea:** When first modifier is released while hotkey is still held, immediately grab.
 
-Or handle it within the existing Recording state by tracking `is_grabbed` separately.
+**Why we didn't try it:**
+- Still faces the same per-device modifier tracking problem
+- Added complexity for uncertain benefit
+- Would need to track individual modifier states during Recording
+
+### Current Workaround
+
+**User training:** Release all keys simultaneously, or accept occasional "e" leaks.
+
+**State machine protection:** The existing `PendingGrab` state correctly handles tap-to-toggle by waiting for all keys to release before grabbing, which works for long-recording mode entry but doesn't help with push-to-talk modifier leaks.
 
 ## Related Files
 
 - `src/bin/hotkey-daemon.rs` - Main daemon with state machine
+- `lessons-learned/2025-12-29-wayland-modifier-state-device-isolation.md` - Detailed analysis of the modifier leak problem
 - `lessons-learned/evdev-keyboard-grab.md` - Original grab/ungrab lessons
 
 ## Key evdev/ydotool Facts
 
 - `device.grab()` gives exclusive access - ALL events from that device go ONLY to your process
+- Wayland compositors track modifier state **per input device**
+- ydotool creates a separate `/dev/uinput` virtual device - events from it don't affect physical device state
 - ydotool key codes: 29=LCtrl, 97=RCtrl, 42=LShift, 54=RShift, 56=LAlt, 100=RAlt, 125=LMeta, 126=RMeta, 28=Enter
 - ydotool format: `ydotool key CODE:1` (press), `CODE:0` (release)
 - evdev event values: 1=press, 0=release, 2=repeat (always skip repeat for state tracking)
@@ -111,6 +121,6 @@ Or handle it within the existing Recording state by tracking `is_grabbed` separa
 ## Testing Checklist
 
 - [x] Enter debounce works - no rapid-fire submits in LongRecording
-- [ ] Releasing modifiers before hotkey key doesn't leak characters
-- [ ] No sticky modifiers after ungrab
+- [ ] Releasing modifiers before hotkey key doesn't leak characters (UNSOLVED)
+- [ ] No sticky modifiers after ungrab (FAILS with immediate grab approach)
 - [x] PendingUngrab waits for hotkey key release (not any key)
