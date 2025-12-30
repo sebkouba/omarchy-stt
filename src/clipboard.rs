@@ -10,6 +10,7 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), Box<dyn Error>> {
     debug!("Copying {} bytes to clipboard via wl-copy", text.len());
 
     let mut child = Command::new("wl-copy")
+        .arg("--sensitive") // Prevent cliphist from storing transcriptions
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| {
