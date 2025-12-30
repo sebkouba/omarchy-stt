@@ -39,6 +39,7 @@ evdev-shortcut = "0.1.5"
 evdev = "0.12"
 glob = "0.3"
 futures = "0.3"
+zbus = "5"
 
 [features]
 default = ["ocr"]

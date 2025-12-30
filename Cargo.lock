@@ -5106,6 +5106,7 @@ dependencies = [
  "toml",
  "ureq 2.12.1",
  "whisper-rs",
+ "zbus 5.12.0",
 ]
 
 [[package]]

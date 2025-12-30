@@ -185,9 +185,17 @@ impl GroqClient {
         prompt_name: &str,
         ocr_context: Option<&str>,
     ) -> Result<CompletionResult, Box<dyn Error>> {
-        // Use tokio runtime to run async code
-        let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
+        // Check if we're already in a tokio runtime
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // We're inside an existing runtime - use block_in_place to avoid nested runtime panic
+            tokio::task::block_in_place(|| {
+                handle.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
+            })
+        } else {
+            // No runtime exists - create a new one
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
+        }
     }
 
     /// Complete with explicit conversation history (for GUI conversations)
@@ -201,9 +209,17 @@ impl GroqClient {
     /// # Returns
     /// CompletionResult with the processed text and whether a tool was called
     pub fn complete_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
-        // Use tokio runtime to run async code
-        let runtime = tokio::runtime::Runtime::new()?;
-        runtime.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+        // Check if we're already in a tokio runtime
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            // We're inside an existing runtime - use block_in_place to avoid nested runtime panic
+            tokio::task::block_in_place(|| {
+                handle.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+            })
+        } else {
+            // No runtime exists - create a new one
+            let runtime = tokio::runtime::Runtime::new()?;
+            runtime.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+        }
     }
 
     /// Async version of complete with full tool calling support
