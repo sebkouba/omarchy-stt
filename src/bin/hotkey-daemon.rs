@@ -361,6 +361,44 @@ fn send_enter_key() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Bind Enter key as a global shortcut via hyprctl (for long recording mode)
+fn bind_enter_key() {
+    debug!("Binding Enter key as global shortcut");
+    match Command::new("hyprctl")
+        .args(["keyword", "bind", ",Return,global,:transcribe-enter"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            eprintln!("[HYPRCTL] Bound Enter key as global shortcut");
+        }
+        Ok(_) => {
+            warn!("hyprctl bind command failed");
+        }
+        Err(e) => {
+            warn!("Failed to execute hyprctl: {}", e);
+        }
+    }
+}
+
+/// Unbind Enter key global shortcut via hyprctl
+fn unbind_enter_key() {
+    debug!("Unbinding Enter key global shortcut");
+    match Command::new("hyprctl")
+        .args(["keyword", "unbind", ",Return"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            eprintln!("[HYPRCTL] Unbound Enter key");
+        }
+        Ok(_) => {
+            warn!("hyprctl unbind command failed");
+        }
+        Err(e) => {
+            warn!("Failed to execute hyprctl: {}", e);
+        }
+    }
+}
+
 /// Run progress animation in background
 fn start_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
     std::thread::spawn(move || {
@@ -673,10 +711,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     eprintln!("[DBUS] Session created: {:?}", session_handle);
 
     // Prepare shortcuts to bind - store descriptions separately to avoid lifetime issues
-    let shortcut_ids: Vec<String> = binding_map.keys().cloned().collect();
+    let mut shortcut_ids: Vec<String> = binding_map.keys().cloned().collect();
+    // Add transcribe-enter for dynamic Enter key binding during long recording
+    shortcut_ids.push("transcribe-enter".to_string());
+
     let descriptions: Vec<String> = shortcut_ids.iter()
-        .map(|id| format!("Transcribe hotkey for key {}",
-            key_from_shortcut_id(id).unwrap_or_default()))
+        .map(|id| {
+            if id == "transcribe-enter" {
+                "Enter key for submit during long recording".to_string()
+            } else {
+                format!("Transcribe hotkey for key {}",
+                    key_from_shortcut_id(id).unwrap_or_default())
+            }
+        })
         .collect();
 
     let mut shortcuts: Vec<(&str, HashMap<&str, Value<'_>>)> = Vec::new();
@@ -843,6 +890,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     // Tap detected - enter long recording mode
                     eprintln!("[TRANSITION] Recording -> LongRecording (tap < {}ms)", tap_threshold.as_millis());
                     println!(">>> LONG RECORDING MODE (tap again within 1.5s to repaste) <<<");
+                    bind_enter_key(); // Capture Enter key during long recording
                     state = RecordingState::LongRecording {
                         active: active.clone(),
                         entered_at: Instant::now(),
@@ -872,6 +920,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 if time_in_long_recording < double_tap_window {
                     // Double-tap detected! Cancel recording and wait for key release before repasting
                     eprintln!("[TRANSITION] LongRecording -> PendingRepaste (double-tap within {}ms)", time_in_long_recording.as_millis());
+                    unbind_enter_key(); // Release Enter key
 
                     // Cancel the recording since we're repasting instead
                     if let Err(e) = cancel_recording(&config) {
@@ -894,10 +943,54 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 } else {
                     // Not a double-tap - defer transcription until key release
                     eprintln!("[TRANSITION] LongRecording -> PendingTranscription (waiting for key release)");
+                    unbind_enter_key(); // Release Enter key
                     state = RecordingState::PendingTranscription {
                         shortcut_id: shortcut_id.clone(),
                         prompt: active.binding.prompt.clone(),
                     };
+                }
+            }
+
+            // LONG RECORDING + Enter key (transcribe-enter) -> Submit, send Enter, restart recording
+            // NOTE: This MUST come BEFORE the "DIFFERENT shortcut" catch-all arm below!
+            (RecordingState::LongRecording { active, .. }, ShortcutEvent::Activated { shortcut_id, .. })
+                if shortcut_id == "transcribe-enter" =>
+            {
+                eprintln!("[TRANSITION] LongRecording: Enter pressed - submit and continue");
+                println!(">>> ENTER: Submit and continue <<<");
+
+                let prompt_clone = active.binding.prompt.clone();
+                let binding_clone = active.clone();
+
+                // Unbind Enter BEFORE processing so the synthetic Enter reaches the app
+                unbind_enter_key();
+
+                // Process transcription, paste, and send Enter
+                match process_transcription_and_send_enter(&config, prompt_clone.as_deref()) {
+                    Ok(_) => {
+                        eprintln!("[OK] Transcription submitted with Enter");
+                    }
+                    Err(e) => {
+                        eprintln!("[ERROR] Submit failed: {}", e);
+                    }
+                }
+
+                // Immediately start new recording with the same binding
+                match start_recording(&config) {
+                    Ok(_) => {
+                        eprintln!("[TRANSITION] Restarted recording after Enter");
+                        // Rebind Enter for continued long recording
+                        bind_enter_key();
+                        state = RecordingState::LongRecording {
+                            active: binding_clone,
+                            entered_at: Instant::now(),
+                        };
+                    }
+                    Err(e) => {
+                        eprintln!("[ERROR] Failed to restart recording: {}", e);
+                        // Enter already unbound, stay in Idle
+                        state = RecordingState::Idle;
+                    }
                 }
             }
 
@@ -906,6 +999,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 // Different key pressed - cancel current recording, start fresh with new binding
                 if let Some(new_binding) = binding_map.get(shortcut_id) {
                     eprintln!("[TRANSITION] LongRecording: switching to different key {}", shortcut_id);
+                    unbind_enter_key(); // Release Enter key
                     // Cancel current recording
                     if let Err(e) = cancel_recording(&config) {
                         eprintln!("[WARN] Failed to cancel recording: {}", e);
@@ -999,6 +1093,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     eprintln!("[CLEANUP] Shutting down...");
     activated_handle.abort();
     deactivated_handle.abort();
+
+    // Unbind Enter key if we were in long recording mode
+    if matches!(state, RecordingState::LongRecording { .. }) {
+        unbind_enter_key();
+    }
 
     if !matches!(state, RecordingState::Idle) {
         eprintln!("[CLEANUP] Cleaning up recording state on exit");
