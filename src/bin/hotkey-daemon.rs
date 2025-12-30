@@ -316,8 +316,6 @@ fn wait_for_modifiers_released() {
         std::thread::sleep(poll_interval);
     }
 
-    // Small extra delay to ensure clean state
-    std::thread::sleep(Duration::from_millis(50));
     debug!("All modifiers released after {}ms", start.elapsed().as_millis());
 }
 
@@ -513,9 +511,6 @@ fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<S
 fn process_transcription_and_send_enter(config: &Config, prompt_name: Option<&str>) -> Result<(), Box<dyn Error>> {
     // Process the transcription normally
     process_transcription(config, prompt_name)?;
-
-    // Small delay to ensure paste completes
-    std::thread::sleep(Duration::from_millis(50));
 
     // Send Enter key
     send_enter_key()?;
