@@ -116,7 +116,10 @@ enum RecordingState {
         active: ActiveBinding,
     },
     /// Long recording mode (tapped hotkey)
-    LongRecording { active: ActiveBinding },
+    LongRecording {
+        active: ActiveBinding,
+        entered_at: Instant, // When we entered long recording (for double-tap detection)
+    },
 }
 
 /// Start recording via the recording daemon
@@ -375,7 +378,8 @@ fn start_api_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
 }
 
 /// Process the complete transcription workflow
-fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(), Box<dyn Error>> {
+/// Returns the final transcribed text on success (for repaste feature)
+fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<String, Box<dyn Error>> {
     let recording_result = stop_recording(config)?;
     let audio_file = &recording_result.audio_file;
     let recording_ms = recording_result.duration_ms;
@@ -424,13 +428,13 @@ fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<(
             llm_result.text.clone()
         };
         notifications::notify("Tool executed", &preview, 3000).ok();
-        return Ok(());
+        return Ok(llm_result.text);
     }
 
     copy_and_paste(&llm_result.text, config)?;
 
     info!("Transcription complete: {}", llm_result.text);
-    Ok(())
+    Ok(llm_result.text)
 }
 
 /// Process transcription and send Enter (for submit+continue flow)
@@ -689,8 +693,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // State machine
     let mut state = RecordingState::Idle;
     let tap_threshold = Duration::from_millis(config.hotkey.tap_threshold_ms);
-    let mut last_enter_time: Option<Instant> = None;
-    let enter_debounce = Duration::from_millis(500);
+    let double_tap_window = Duration::from_millis(1500); // Window for double-tap repaste
+    let mut last_transcription: Option<String> = None;
+    let mut last_repaste_time: Option<Instant> = None;
+    let repaste_debounce = Duration::from_millis(1000); // Ignore events shortly after repaste
 
     println!();
     println!("Hotkey daemon running with GlobalShortcuts portal.");
@@ -728,8 +734,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         eprintln!("[EVENT] {:?} | state={:?}", event, state);
 
         match (&state, &event) {
-            // IDLE + Activated -> Start recording
+            // IDLE + Activated -> Start recording (with debounce check for repaste)
             (RecordingState::Idle, ShortcutEvent::Activated { shortcut_id, .. }) => {
+                // Check if we should ignore this event due to recent repaste
+                if let Some(repaste_time) = last_repaste_time {
+                    if repaste_time.elapsed() < repaste_debounce {
+                        eprintln!("[DEBOUNCE] Ignoring activation within {}ms of repaste", repaste_time.elapsed().as_millis());
+                        continue;
+                    }
+                }
+
                 if let Some(binding) = binding_map.get(shortcut_id) {
                     eprintln!("[TRANSITION] Idle -> Recording (shortcut {} activated)", shortcut_id);
                     match start_recording(&config) {
@@ -751,7 +765,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            // RECORDING + Deactivated (same shortcut) -> Check tap vs hold
+            // RECORDING + Deactivated (same shortcut) -> Check quick-tap (repaste) vs tap vs hold
             (RecordingState::Recording { press_time, active }, ShortcutEvent::Deactivated { shortcut_id, .. })
                 if shortcut_id == &active.shortcut_id =>
             {
@@ -760,11 +774,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
                 if duration < tap_threshold {
                     // Tap detected - enter long recording mode
-                    eprintln!("[TRANSITION] Recording -> LongRecording (tap detected)");
-                    println!(">>> LONG RECORDING MODE <<<");
-                    println!(">>> Press hotkey again to submit+continue or finish <<<");
+                    eprintln!("[TRANSITION] Recording -> LongRecording (tap < {}ms)", tap_threshold.as_millis());
+                    println!(">>> LONG RECORDING MODE (tap again within 1.5s to repaste) <<<");
                     state = RecordingState::LongRecording {
                         active: active.clone(),
+                        entered_at: Instant::now(),
                     };
                 } else {
                     // Hold detected - normal push-to-talk, process immediately
@@ -772,31 +786,78 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     let config_clone = config.clone();
                     let prompt_clone = active.binding.prompt.clone();
                     match process_transcription(&config_clone, prompt_clone.as_deref()) {
-                        Ok(_) => eprintln!("[OK] Transcription processed"),
+                        Ok(text) => {
+                            last_transcription = Some(text);
+                            eprintln!("[OK] Transcription processed and saved");
+                        }
                         Err(e) => eprintln!("[ERROR] Transcription failed: {}", e),
                     }
                     state = RecordingState::Idle;
                 }
             }
 
-            // LONG RECORDING + Activated (same shortcut) -> FINISH (toggle off)
-            (RecordingState::LongRecording { active }, ShortcutEvent::Activated { shortcut_id, .. })
+            // LONG RECORDING + Activated (same shortcut) -> Check for double-tap (repaste) or finish
+            (RecordingState::LongRecording { active, entered_at }, ShortcutEvent::Activated { shortcut_id, .. })
                 if shortcut_id == &active.shortcut_id =>
             {
-                // Same key pressed again - finish recording (toggle behavior)
-                eprintln!("[TRANSITION] LongRecording -> Idle (same key pressed, finishing)");
-                let config_clone = config.clone();
-                let prompt_clone = active.binding.prompt.clone();
-                match process_transcription(&config_clone, prompt_clone.as_deref()) {
-                    Ok(_) => eprintln!("[OK] Transcription processed"),
-                    Err(e) => eprintln!("[ERROR] Transcription failed: {}", e),
+                let time_in_long_recording = entered_at.elapsed();
+
+                if time_in_long_recording < double_tap_window {
+                    // Double-tap detected! Cancel recording and repaste
+                    eprintln!("[TRANSITION] LongRecording -> Idle (double-tap within {}ms, repasting)", time_in_long_recording.as_millis());
+
+                    // Cancel the recording since we're repasting instead
+                    if let Err(e) = cancel_recording(&config) {
+                        eprintln!("[WARN] Failed to cancel recording: {}", e);
+                    }
+
+                    if let Some(ref text) = last_transcription {
+                        eprintln!("[REPASTE] Double-tap repaste: {}", text);
+
+                        // Wait for modifiers to fully release before pasting
+                        eprintln!("[REPASTE] Waiting 500ms for modifiers to settle...");
+                        std::thread::sleep(Duration::from_millis(500));
+
+                        match copy_and_paste(text, &config) {
+                            Ok(_) => {
+                                use transcribe_rs::notifications;
+                                let preview = if text.len() > 50 {
+                                    format!("{}...", &text[..50])
+                                } else {
+                                    text.clone()
+                                };
+                                notifications::notify("Repasted", &preview, 2000).ok();
+                                eprintln!("[OK] Repaste successful");
+                                last_repaste_time = Some(Instant::now());
+                            }
+                            Err(e) => eprintln!("[ERROR] Repaste failed: {}", e),
+                        }
+                    } else {
+                        eprintln!("[INFO] No previous transcription to repaste");
+                        use transcribe_rs::notifications;
+                        notifications::notify("No previous transcription", "Record something first", 2000).ok();
+                    }
+                    state = RecordingState::Idle;
+                    println!(">>> DOUBLE-TAP REPASTE <<<");
+                } else {
+                    // Not a double-tap, finish recording normally
+                    eprintln!("[TRANSITION] LongRecording -> Idle (same key pressed after {}ms, finishing)", time_in_long_recording.as_millis());
+                    let config_clone = config.clone();
+                    let prompt_clone = active.binding.prompt.clone();
+                    match process_transcription(&config_clone, prompt_clone.as_deref()) {
+                        Ok(text) => {
+                            last_transcription = Some(text);
+                            eprintln!("[OK] Transcription processed and saved");
+                        }
+                        Err(e) => eprintln!("[ERROR] Transcription failed: {}", e),
+                    }
+                    state = RecordingState::Idle;
+                    println!(">>> LONG RECORDING ENDED <<<");
                 }
-                state = RecordingState::Idle;
-                println!(">>> LONG RECORDING ENDED <<<");
             }
 
             // LONG RECORDING + Activated (DIFFERENT shortcut) -> Cancel current, start new with different prompt
-            (RecordingState::LongRecording { active: _ }, ShortcutEvent::Activated { shortcut_id, .. }) => {
+            (RecordingState::LongRecording { active: _, entered_at: _ }, ShortcutEvent::Activated { shortcut_id, .. }) => {
                 // Different key pressed - cancel current recording, start fresh with new binding
                 if let Some(new_binding) = binding_map.get(shortcut_id) {
                     eprintln!("[TRANSITION] LongRecording: switching to different key {}", shortcut_id);
