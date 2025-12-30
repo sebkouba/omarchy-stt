@@ -11,6 +11,7 @@
 //!   bind = SUPER+SHIFT+CTRL+ALT, Q, global, transcribe:transcribe-q
 //!   etc.
 
+use evdev::Key;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::error::Error;
@@ -119,6 +120,16 @@ enum RecordingState {
     LongRecording {
         active: ActiveBinding,
         entered_at: Instant, // When we entered long recording (for double-tap detection)
+    },
+    /// Waiting for key release before repasting (double-tap detected)
+    PendingRepaste {
+        shortcut_id: String,
+        text: String,
+    },
+    /// Waiting for key release before transcribing (long recording finish)
+    PendingTranscription {
+        shortcut_id: String,
+        prompt: Option<String>,
     },
 }
 
@@ -254,6 +265,62 @@ fn process_with_llm(
     Ok(LlmResult { text: result.text, tool_called: result.tool_called })
 }
 
+/// Check if any modifier keys are currently pressed on any keyboard device
+fn are_modifiers_pressed() -> bool {
+    let modifier_keys = [
+        Key::KEY_LEFTCTRL,
+        Key::KEY_RIGHTCTRL,
+        Key::KEY_LEFTSHIFT,
+        Key::KEY_RIGHTSHIFT,
+        Key::KEY_LEFTALT,
+        Key::KEY_RIGHTALT,
+        Key::KEY_LEFTMETA,  // Super/Win key
+        Key::KEY_RIGHTMETA,
+    ];
+
+    // Enumerate all input devices
+    for (_path, device) in evdev::enumerate() {
+        // Only check devices that have keys (keyboards)
+        if let Some(supported_keys) = device.supported_keys() {
+            // Check if this device supports any modifier keys
+            let has_modifiers = modifier_keys.iter().any(|k| supported_keys.contains(*k));
+            if !has_modifiers {
+                continue;
+            }
+
+            // Get current key state
+            if let Ok(key_state) = device.get_key_state() {
+                for key in &modifier_keys {
+                    if key_state.contains(*key) {
+                        debug!("Modifier {:?} is pressed on {:?}", key, device.name());
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Wait for all modifier keys to be released before proceeding
+fn wait_for_modifiers_released() {
+    let timeout = Duration::from_secs(5);
+    let poll_interval = Duration::from_millis(20);
+    let start = Instant::now();
+
+    while are_modifiers_pressed() {
+        if start.elapsed() > timeout {
+            warn!("Timeout waiting for modifiers to be released, proceeding anyway");
+            break;
+        }
+        std::thread::sleep(poll_interval);
+    }
+
+    // Small extra delay to ensure clean state
+    std::thread::sleep(Duration::from_millis(50));
+    debug!("All modifiers released after {}ms", start.elapsed().as_millis());
+}
+
 /// Copy to clipboard and paste
 fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
     let text = if config.integration.add_space_after_punctuation {
@@ -265,6 +332,11 @@ fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
     clipboard::copy_to_clipboard(&text)?;
 
     if config.integration.auto_paste {
+        // Wait for all modifier keys to be released before pasting
+        // This prevents Ctrl+V from combining with held modifiers
+        debug!("Waiting for modifiers to be released before paste...");
+        wait_for_modifiers_released();
+
         if let Err(e) = paste::paste_from_clipboard() {
             warn!("Paste failed: {}", e);
         }
@@ -803,8 +875,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let time_in_long_recording = entered_at.elapsed();
 
                 if time_in_long_recording < double_tap_window {
-                    // Double-tap detected! Cancel recording and repaste
-                    eprintln!("[TRANSITION] LongRecording -> Idle (double-tap within {}ms, repasting)", time_in_long_recording.as_millis());
+                    // Double-tap detected! Cancel recording and wait for key release before repasting
+                    eprintln!("[TRANSITION] LongRecording -> PendingRepaste (double-tap within {}ms)", time_in_long_recording.as_millis());
 
                     // Cancel the recording since we're repasting instead
                     if let Err(e) = cancel_recording(&config) {
@@ -812,47 +884,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     if let Some(ref text) = last_transcription {
-                        eprintln!("[REPASTE] Double-tap repaste: {}", text);
-
-                        // Wait for modifiers to fully release before pasting
-                        eprintln!("[REPASTE] Waiting 500ms for modifiers to settle...");
-                        std::thread::sleep(Duration::from_millis(500));
-
-                        match copy_and_paste(text, &config) {
-                            Ok(_) => {
-                                use transcribe_rs::notifications;
-                                let preview = if text.len() > 50 {
-                                    format!("{}...", &text[..50])
-                                } else {
-                                    text.clone()
-                                };
-                                notifications::notify("Repasted", &preview, 2000).ok();
-                                eprintln!("[OK] Repaste successful");
-                                last_repaste_time = Some(Instant::now());
-                            }
-                            Err(e) => eprintln!("[ERROR] Repaste failed: {}", e),
-                        }
+                        // Transition to PendingRepaste - will paste when key is released
+                        state = RecordingState::PendingRepaste {
+                            shortcut_id: shortcut_id.clone(),
+                            text: text.clone(),
+                        };
+                        eprintln!("[PENDING] Waiting for key release before repasting...");
                     } else {
                         eprintln!("[INFO] No previous transcription to repaste");
                         use transcribe_rs::notifications;
                         notifications::notify("No previous transcription", "Record something first", 2000).ok();
+                        state = RecordingState::Idle;
                     }
-                    state = RecordingState::Idle;
-                    println!(">>> DOUBLE-TAP REPASTE <<<");
                 } else {
-                    // Not a double-tap, finish recording normally
-                    eprintln!("[TRANSITION] LongRecording -> Idle (same key pressed after {}ms, finishing)", time_in_long_recording.as_millis());
-                    let config_clone = config.clone();
-                    let prompt_clone = active.binding.prompt.clone();
-                    match process_transcription(&config_clone, prompt_clone.as_deref()) {
-                        Ok(text) => {
-                            last_transcription = Some(text);
-                            eprintln!("[OK] Transcription processed and saved");
-                        }
-                        Err(e) => eprintln!("[ERROR] Transcription failed: {}", e),
-                    }
-                    state = RecordingState::Idle;
-                    println!(">>> LONG RECORDING ENDED <<<");
+                    // Not a double-tap - defer transcription until key release
+                    eprintln!("[TRANSITION] LongRecording -> PendingTranscription (waiting for key release)");
+                    state = RecordingState::PendingTranscription {
+                        shortcut_id: shortcut_id.clone(),
+                        prompt: active.binding.prompt.clone(),
+                    };
                 }
             }
 
@@ -887,6 +937,60 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Ignore deactivated in LongRecording
             (RecordingState::LongRecording { .. }, ShortcutEvent::Deactivated { .. }) => {
                 // Ignore release events in long recording mode
+            }
+
+            // PENDING REPASTE + Deactivated -> Now safe to paste (keys released)
+            (RecordingState::PendingRepaste { shortcut_id: pending_id, text }, ShortcutEvent::Deactivated { shortcut_id, .. })
+                if shortcut_id == pending_id =>
+            {
+                eprintln!("[TRANSITION] PendingRepaste -> Idle (key released, waiting for modifiers)");
+
+                // copy_and_paste will wait for modifiers to be released
+                match copy_and_paste(text, &config) {
+                    Ok(_) => {
+                        use transcribe_rs::notifications;
+                        let preview = if text.len() > 50 {
+                            format!("{}...", &text[..50])
+                        } else {
+                            text.clone()
+                        };
+                        notifications::notify("Repasted", &preview, 2000).ok();
+                        eprintln!("[OK] Repaste successful");
+                        last_repaste_time = Some(Instant::now());
+                    }
+                    Err(e) => eprintln!("[ERROR] Repaste failed: {}", e),
+                }
+                state = RecordingState::Idle;
+                println!(">>> DOUBLE-TAP REPASTE <<<");
+            }
+
+            // PENDING TRANSCRIPTION + Deactivated -> Now safe to transcribe and paste (keys released)
+            (RecordingState::PendingTranscription { shortcut_id: pending_id, prompt }, ShortcutEvent::Deactivated { shortcut_id, .. })
+                if shortcut_id == pending_id =>
+            {
+                eprintln!("[TRANSITION] PendingTranscription -> Idle (key released, processing)");
+
+                // process_transcription -> copy_and_paste will wait for modifiers
+                let config_clone = config.clone();
+                match process_transcription(&config_clone, prompt.as_deref()) {
+                    Ok(text) => {
+                        last_transcription = Some(text);
+                        eprintln!("[OK] Transcription processed and saved");
+                    }
+                    Err(e) => eprintln!("[ERROR] Transcription failed: {}", e),
+                }
+                state = RecordingState::Idle;
+                println!(">>> LONG RECORDING ENDED <<<");
+            }
+
+            // Ignore other events in PendingRepaste (e.g., different key)
+            (RecordingState::PendingRepaste { .. }, _) => {
+                eprintln!("[IGNORED] Event while waiting for repaste key release");
+            }
+
+            // Ignore other events in PendingTranscription (e.g., different key)
+            (RecordingState::PendingTranscription { .. }, _) => {
+                eprintln!("[IGNORED] Event while waiting for transcription key release");
             }
 
             // Ignore other combinations
