@@ -160,17 +160,47 @@ Strict format enforcement in `audio::read_wav_samples()`:
 
 ## Common Development Commands
 
+## Development Workflow (Versioned Builds)
 
+This project uses versioned builds to prevent development from interfering with running daemons.
 
-### Building
+### Directory Structure
+- `builds/staging/` - Latest development build (use for testing)
+- `builds/current/` - Symlink to active production version (daemons use this)
+- `builds/YYYYMMDD-HHMMSS/` - Timestamped versions for rollback
+
+### Workflow
+
+**During development:**
+1. Make code changes
+2. Run `/build` to compile to staging (does NOT affect running daemons)
+3. Test manually: `./builds/staging/transcribe-client samples/jfk.wav`
+
+**When ready to go live:**
+4. Run `/promote` to make staging the current version and restart daemons
+
+**If something breaks:**
+5. Run `/rollback` to revert to a previous version
+
+### Key Points
+- `cargo build --release` alone does NOT affect running daemons
+- Daemons always run from `builds/current/`
+- Testing uses `builds/staging/` directly
+- `/promote` creates a timestamped snapshot and updates the symlink
+
+### Commands Summary
+| Command | Effect |
+|---------|--------|
+| `/build` | Compile to staging (safe, no restart) |
+| `/promote` | Make staging live + restart daemons |
+| `/rollback` | Revert to previous version |
+
+### Building (Manual)
 
 ```bash
-# Build all binaries (transcribe, transcribe-daemon, transcribe-client, recording-daemon)
+# Build to staging (preferred - use /build command instead)
 cargo build --release
-
-# Build specific binary
-cargo build --release --bin transcribe-daemon
-cargo build --release --bin recording-daemon
+cp target/release/{transcribe,transcribe-daemon,transcribe-client,recording-daemon,hotkey-daemon} builds/staging/
 
 # Check without building
 cargo check
@@ -240,7 +270,15 @@ sudo pacman -S wl-clipboard ydotool ffmpeg
 
 ### Installation Steps
 
-1. Build release binaries: `cargo build --release`
+1. Build release binaries and set up versioned builds:
+   ```bash
+   cargo build --release
+   mkdir -p builds/staging
+   VERSION=$(date +%Y%m%d-%H%M%S)
+   mkdir builds/$VERSION
+   cp target/release/{transcribe,transcribe-daemon,transcribe-client,recording-daemon,hotkey-daemon} builds/$VERSION/
+   ln -s $VERSION builds/current
+   ```
 
 2. Download Parakeet model:
    ```bash
@@ -263,13 +301,27 @@ sudo pacman -S wl-clipboard ydotool ffmpeg
    systemctl --user start recording-daemon transcribe-daemon
    ```
 
-5. Configure Hyprland keybindings in `~/.config/hypr/hyprland.conf`:
+5. Configure hotkey daemon OR Hyprland keybindings:
+
+   **Option A: Hotkey daemon (recommended)**
+   ```bash
+   # Uses XDG Desktop Portal GlobalShortcuts - works across Wayland compositors
+   systemctl --user enable hotkey-daemon
+   systemctl --user start hotkey-daemon
+   ```
+
+   **Option B: Hyprland keybindings** in `~/.config/hypr/hyprland.conf`:
    ```ini
-   bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe start
-   bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe stop
+   bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/builds/current/transcribe start
+   bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/builds/current/transcribe stop
    ```
 
 ### File Locations
+
+**Build directories:**
+- `builds/staging/` - Development build for testing
+- `builds/current/` - Symlink to active version (daemons use this)
+- `builds/YYYYMMDD-HHMMSS/` - Timestamped version snapshots
 
 **Temporary files:**
 - `/tmp/ptt_current.wav` - Current/last recording

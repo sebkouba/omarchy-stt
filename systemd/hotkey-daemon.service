@@ -6,7 +6,7 @@ Wants=recording-daemon.service transcribe-daemon.service
 
 [Service]
 Type=simple
-ExecStart=%h/code/cloned/transcribe-rs-v2/target/release/hotkey-daemon
+ExecStart=%h/code/cloned/transcribe-rs-v2/builds/current/hotkey-daemon
 Restart=on-failure
 RestartSec=3
 

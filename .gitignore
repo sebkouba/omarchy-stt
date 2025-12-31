@@ -1,4 +1,5 @@
 /target
+/builds
 models/
 *.DS_Store
 .build_number
