@@ -88,10 +88,12 @@ impl VadManager {
         let original_duration = samples.len() as f32 / SAMPLE_RATE as f32;
 
         if !self.should_apply_vad(samples) {
-            debug!(
-                "VAD skipped: enabled={}, duration={:.1}s, threshold={:.1}s",
-                self.config.enabled, original_duration, self.config.min_duration_seconds
-            );
+            if self.config.enabled {
+                info!(
+                    "VAD skipped: {:.1}s < {:.1}s threshold",
+                    original_duration, self.config.min_duration_seconds
+                );
+            }
             return Ok((
                 samples.to_vec(),
                 VadResult {

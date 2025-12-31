@@ -425,7 +425,7 @@ impl Default for VadConfig {
         VadConfig {
             enabled: true,
             threshold: 0.5,
-            min_duration_seconds: 20.0,
+            min_duration_seconds: 30.0,
             min_speech_duration_ms: 250,
             min_silence_duration_ms: 100,
         }
