@@ -3476,6 +3476,7 @@ version = "2.0.0-rc.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fa7e49bd669d32d7bc2a15ec540a527e7764aec722a45467814005725bcd721"
 dependencies = [
+ "libloading",
  "ndarray",
  "ort-sys",
  "smallvec 2.0.0-alpha.10",
@@ -4396,6 +4397,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "silero-vad-rust"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a8636fa2581063bb52f2cbe70148009763612fec05f4be365225df552868a92"
+dependencies = [
+ "anyhow",
+ "hound",
+ "ndarray",
+ "ort",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5099,6 +5113,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "silero-vad-rust",
  "similar",
  "tempfile",
  "thiserror 2.0.17",

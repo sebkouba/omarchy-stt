@@ -24,7 +24,9 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use transcribe_rs::circular_buffer::{CircularBuffer, SharedBuffer};
+use transcribe_rs::config::{Config, VadConfig};
 use transcribe_rs::logging;
+use transcribe_rs::vad::VadManager;
 
 const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
 const SAMPLE_RATE: u32 = 16000; // 16kHz
@@ -39,16 +41,18 @@ struct DaemonState {
     buffer: SharedBuffer,
     start_time: Instant,
     is_recording: Arc<AtomicBool>,
+    vad_config: VadConfig,
 }
 
 impl DaemonState {
-    fn new(buffer: SharedBuffer, is_recording: Arc<AtomicBool>) -> Self {
+    fn new(buffer: SharedBuffer, is_recording: Arc<AtomicBool>, vad_config: VadConfig) -> Self {
         Self {
             recording_start_index: None,
             ffmpeg_process: None,
             buffer,
             start_time: Instant::now(),
             is_recording,
+            vad_config,
         }
     }
 }
@@ -62,6 +66,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("=== Recording daemon starting ===");
+
+    // Load configuration
+    let config = Config::load().unwrap_or_default();
+    info!(
+        "VAD config: enabled={}, threshold={}, min_duration={}s",
+        config.vad.enabled, config.vad.threshold, config.vad.min_duration_seconds
+    );
 
     // Get microphone from environment or use default
     let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| {
@@ -91,6 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(Mutex::new(DaemonState::new(
         Arc::clone(&buffer),
         Arc::clone(&is_recording),
+        config.vad,
     )));
 
     // Spawn FFmpeg and reader thread
@@ -493,33 +505,67 @@ fn handle_stop(request: Value, state: SharedState) -> Value {
 
     debug!("Extracted {} samples", samples.len());
 
+    // Apply VAD if enabled and audio is long enough
+    let vad_manager = VadManager::new(state_guard.vad_config.clone());
+    let (final_samples, vad_result) = match vad_manager.process_i16(&samples) {
+        Ok((filtered, result)) => {
+            if result.vad_applied {
+                info!(
+                    "VAD: kept {:.1}s of {:.1}s ({} segments)",
+                    result.speech_duration_seconds,
+                    result.original_duration_seconds,
+                    result.segments.len()
+                );
+            }
+            (filtered, Some(result))
+        }
+        Err(e) => {
+            warn!("VAD processing failed, using original audio: {}", e);
+            (samples, None)
+        }
+    };
+
     // Write WAV file
     match transcribe_rs::audio::write_wav_from_samples(
-        &samples,
+        &final_samples,
         SAMPLE_RATE,
         Path::new(OUTPUT_WAV_PATH),
     ) {
         Ok(_) => {
-            let duration_ms = (samples.len() as f64 / SAMPLE_RATE as f64 * 1000.0) as u64;
+            let duration_ms = (final_samples.len() as f64 / SAMPLE_RATE as f64 * 1000.0) as u64;
             let latency_ms = start_time.elapsed().as_millis() as u64;
 
             debug!(
                 "WAV file written: {} ({} samples, {:.2}s, latency: {}ms)",
                 OUTPUT_WAV_PATH,
-                samples.len(),
+                final_samples.len(),
                 duration_ms as f64 / 1000.0,
                 latency_ms
             );
 
             state_guard.recording_start_index = None;
 
-            json!({
+            // Build response with VAD info if applied
+            let mut response = json!({
                 "ok": true,
                 "wav_path": OUTPUT_WAV_PATH,
                 "duration_ms": duration_ms,
                 "latency_ms": latency_ms,
-                "samples": samples.len()
-            })
+                "samples": final_samples.len()
+            });
+
+            if let Some(ref vad) = vad_result {
+                if vad.vad_applied {
+                    response["vad_applied"] = json!(true);
+                    response["vad_original_duration_ms"] =
+                        json!((vad.original_duration_seconds * 1000.0) as u64);
+                    response["vad_speech_duration_ms"] =
+                        json!((vad.speech_duration_seconds * 1000.0) as u64);
+                    response["vad_segments"] = json!(vad.segments.len());
+                }
+            }
+
+            response
         }
         Err(e) => {
             error!(" Failed to write WAV file: {}", e);

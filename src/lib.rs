@@ -76,6 +76,7 @@ pub mod timing;
 pub mod tools;
 pub mod transcription_corrections;
 pub mod transcription_timing;
+pub mod vad;
 
 use std::path::Path;
 

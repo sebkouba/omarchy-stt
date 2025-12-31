@@ -25,6 +25,8 @@ pub struct Config {
     pub watch: WatchConfig,
     #[serde(default)]
     pub hotkey: HotkeyConfig,
+    #[serde(default)]
+    pub vad: VadConfig,
 }
 
 /// Audio recording configuration
@@ -168,6 +170,21 @@ pub struct HotkeyConfig {
     pub bindings: Vec<HotkeyBinding>,
 }
 
+/// Voice Activity Detection configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VadConfig {
+    /// Enable VAD preprocessing
+    pub enabled: bool,
+    /// Speech probability threshold (0.0-1.0, higher = stricter)
+    pub threshold: f32,
+    /// Minimum audio duration in seconds to apply VAD (shorter audio skips VAD)
+    pub min_duration_seconds: f32,
+    /// Minimum speech duration in milliseconds (filters out very short sounds)
+    pub min_speech_duration_ms: i32,
+    /// Minimum silence duration in milliseconds (to split segments)
+    pub min_silence_duration_ms: i32,
+}
+
 /// A single hotkey binding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeyBinding {
@@ -196,6 +213,7 @@ impl Default for Config {
             ocr: OcrConfig::default(),
             watch: WatchConfig::default(),
             hotkey: HotkeyConfig::default(),
+            vad: VadConfig::default(),
         }
     }
 }
@@ -398,6 +416,18 @@ impl Default for HotkeyConfig {
                     gui: true,
                 },
             ],
+        }
+    }
+}
+
+impl Default for VadConfig {
+    fn default() -> Self {
+        VadConfig {
+            enabled: true,
+            threshold: 0.5,
+            min_duration_seconds: 20.0,
+            min_speech_duration_ms: 250,
+            min_silence_duration_ms: 100,
         }
     }
 }
