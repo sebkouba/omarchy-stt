@@ -49,12 +49,21 @@ But the main portal doesn't expose it on the client-facing path because it cache
 2. **Requires= and After= ordering** - Services start but portal caches before hyprland is ready
 3. **Drop-in with WantedBy=graphical-session.target** - Had syntax error (WantedBy in [Unit] is invalid), and still didn't guarantee timing
 4. **Pinging the portal before polling** - Doesn't force interface re-discovery
+5. **Requires= with portal restart in ExecStartPre** - Creates circular dependency! When ExecStartPre restarts the required service, systemd kills the dependent service (us) with SIGTERM
 
-## Solution: Force Portal Restart
+## Solution: Force Portal Restart with Wants= (not Requires=)
 
-The only way to clear the stale cache is to restart the main portal after the hyprland backend is running:
+The only way to clear the stale cache is to restart the main portal after the hyprland backend is running.
+
+**Critical:** Must use `Wants=` not `Requires=` for portal dependencies. With `Requires=`, restarting the portal in ExecStartPre causes systemd to immediately kill our startup process (SIGTERM).
 
 ```ini
+[Unit]
+After=graphical-session.target xdg-desktop-portal-hyprland.service xdg-desktop-portal.service
+# Use Wants= not Requires= - we restart portals in ExecStartPre, and Requires= would
+# cause systemd to kill us when the required service restarts (circular dependency)
+Wants=xdg-desktop-portal-hyprland.service xdg-desktop-portal.service
+
 [Service]
 # Force portal restart to ensure GlobalShortcuts interface is discovered
 # (fixes race condition where main portal caches stale backend state at boot)
@@ -64,10 +73,11 @@ ExecStartPre=/bin/sh -c 'for i in $(seq 1 10); do busctl --user introspect org.f
 ```
 
 This works because:
-1. By the time hotkey-daemon starts, hyprland portal is definitely running (Requires=)
-2. Restarting both portals forces fresh backend discovery
-3. Main portal now finds GlobalShortcuts on the hyprland backend
-4. Short verification loop (10s) catches edge cases
+1. `After=` ensures portals start before us (ordering)
+2. `Wants=` means restarting portals won't kill our startup process
+3. Restarting both portals forces fresh backend discovery
+4. Main portal now finds GlobalShortcuts on the hyprland backend
+5. Short verification loop (10s) catches edge cases
 
 ## Debugging Commands
 
@@ -95,6 +105,7 @@ cat /usr/share/xdg-desktop-portal/hyprland-portals.conf
 3. **Check BOTH portal paths when debugging** - `org.freedesktop.portal.Desktop` (client) vs `org.freedesktop.impl.portal.desktop.hyprland` (backend)
 4. **Restart is the nuclear option** - Sometimes the only fix for race conditions in D-Bus-activated services
 5. **ConditionEnvironment= causes silent skips** - Check journal for "was skipped because of an unmet condition check"
+6. **Requires= + ExecStartPre restart = death** - If you restart a `Requires=` dependency in ExecStartPre, systemd will SIGTERM your startup process. Use `Wants=` + `After=` instead when you need to restart dependencies during startup.
 
 ## Trade-offs of This Fix
 
