@@ -173,35 +173,31 @@ This project uses versioned builds to prevent development from interfering with 
 
 **During development:**
 1. Make code changes
-2. Run `/build` to compile to staging (does NOT affect running daemons)
+2. Run `./scripts/build.sh` to compile to staging (does NOT affect running daemons)
 3. Test manually: `./builds/staging/transcribe-client samples/jfk.wav`
 
 **When ready to go live:**
-4. Run `/promote` to make staging the current version and restart daemons
+4. Run `./scripts/promote.sh` to make staging the current version and restart daemons
 
 **If something breaks:**
-5. Run `/rollback` to revert to a previous version
+5. Run `./scripts/rollback.sh` to revert to a previous version
 
 ### Key Points
 - `cargo build --release` alone does NOT affect running daemons
 - Daemons always run from `builds/current/`
 - Testing uses `builds/staging/` directly
-- `/promote` creates a timestamped snapshot and updates the symlink
+- `promote.sh` creates a timestamped snapshot and updates the symlink
 
-### Commands Summary
-| Command | Effect |
-|---------|--------|
-| `/build` | Compile to staging (safe, no restart) |
-| `/promote` | Make staging live + restart daemons |
-| `/rollback` | Revert to previous version |
+### Scripts Summary
+| Script | Effect |
+|--------|--------|
+| `./scripts/build.sh` | Compile to staging (safe, no restart) |
+| `./scripts/promote.sh` | Make staging live + restart daemons |
+| `./scripts/rollback.sh [version]` | Revert to previous (or specified) version |
 
 ### Building (Manual)
 
 ```bash
-# Build to staging (preferred - use /build command instead)
-cargo build --release
-cp target/release/{transcribe,transcribe-daemon,transcribe-client,recording-daemon,hotkey-daemon} builds/staging/
-
 # Check without building
 cargo check
 
