@@ -579,9 +579,17 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             m.mark_paste_done();
         }
     } else {
-        // Normal flow: copy to clipboard and paste
+        // Normal flow: copy to clipboard, paste, and restore original clipboard
 
-        // Copy to clipboard
+        // Save original clipboard content first
+        debug!("Saving original clipboard content...");
+        let saved_clipboard = clipboard::SavedClipboard::save();
+        debug!(
+            "Clipboard saved (has_content: {})",
+            saved_clipboard.has_content()
+        );
+
+        // Copy transcription to clipboard
         debug!("Copying to clipboard...");
         match clipboard::copy_to_clipboard(&text) {
             Ok(_) => {
@@ -615,10 +623,19 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                         m.mark_paste_done();
                     }
                     notifications::notify_transcription_pasted(&preview).ok();
+
+                    // Restore original clipboard content after successful paste
+                    debug!("Restoring original clipboard content...");
+                    if let Err(e) = saved_clipboard.restore() {
+                        warn!("Failed to restore clipboard: {}", e);
+                    } else {
+                        debug!("Clipboard restored successfully");
+                    }
                 }
                 Err(e) => {
                     warn!("Paste failed: {}, clipboard only", e);
                     notifications::notify_transcription_copied(&preview).ok();
+                    // Don't restore clipboard if paste failed - user may want to manually paste
                 }
             }
         } else {
@@ -628,6 +645,7 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
                 m.mark_paste_done();
             }
             notifications::notify_transcription_copied(&preview).ok();
+            // Don't restore clipboard when auto-paste disabled - user needs clipboard content
         }
     }
 
