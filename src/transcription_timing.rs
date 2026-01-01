@@ -161,6 +161,22 @@ pub fn estimate_transcription_time(recording_ms: u64) -> Option<u64> {
 /// Get the default fallback duration for pulsing animation
 pub const FALLBACK_PULSE_MS: u64 = 500;
 
+/// Estimate VAD processing time based on audio duration
+/// VAD typically takes 50-100ms per second of audio (Silero model)
+pub fn estimate_vad_time(audio_duration_ms: u64) -> u64 {
+    // Rough estimate: 80ms per second of audio, minimum 200ms
+    let estimate = (audio_duration_ms as f64 * 0.08) as u64;
+    estimate.max(200).min(3000) // Cap at 3 seconds
+}
+
+/// Estimate total processing time (VAD + transcription)
+/// Use this when starting progress before calling stop_recording()
+pub fn estimate_total_processing_time(estimated_audio_ms: u64) -> u64 {
+    let vad_time = estimate_vad_time(estimated_audio_ms);
+    let transcription_time = estimate_transcription_time(estimated_audio_ms).unwrap_or(500);
+    vad_time + transcription_time
+}
+
 // ============================================================================
 // API Timing
 // ============================================================================
@@ -312,8 +328,6 @@ pub fn estimate_api_time(text_length: usize) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_estimate_no_history() {
         // When there's no history, should return None

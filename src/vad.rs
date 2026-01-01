@@ -4,7 +4,7 @@
 //! before transcription. It's particularly useful for longer dictations (>20s)
 //! where removing silence improves transcription speed and quality.
 
-use log::{debug, info, warn};
+use log::{info, warn};
 use silero_vad_rust::silero_vad::utils_vad::{get_speech_timestamps, VadParameters};
 use silero_vad_rust::load_silero_vad;
 use std::error::Error;

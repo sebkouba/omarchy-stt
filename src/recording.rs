@@ -19,10 +19,14 @@ const DAEMON_SOCKET: &str = "/tmp/transcribe-rs-v2-recording.sock";
 pub struct RecordingResult {
     /// Path to the WAV file
     pub audio_file: PathBuf,
-    /// Recording duration in milliseconds
+    /// Recording duration in milliseconds (filtered if VAD applied)
     pub duration_ms: u64,
     /// Number of samples recorded
     pub samples: u64,
+    /// Whether VAD was applied to this recording
+    pub vad_applied: bool,
+    /// Original duration before VAD filtering (same as duration_ms if no VAD)
+    pub original_duration_ms: u64,
 }
 
 /// Start recording audio via daemon
@@ -146,13 +150,30 @@ pub fn stop_recording(config: &AudioConfig) -> Result<RecordingResult, Box<dyn E
     let latency_ms = response["latency_ms"].as_u64().unwrap_or(0);
     let samples = response["samples"].as_u64().unwrap_or(0);
 
-    info!(
-        "Recording stopped successfully: path={}, duration={:.2}s, latency={}ms, samples={}",
-        wav_path,
-        duration_ms as f64 / 1000.0,
-        latency_ms,
-        samples
-    );
+    // Extract VAD metadata
+    let vad_applied = response["vad_applied"].as_bool().unwrap_or(false);
+    let original_duration_ms = response["vad_original_duration_ms"]
+        .as_u64()
+        .unwrap_or(duration_ms); // Fall back to duration_ms if no VAD
+
+    if vad_applied {
+        info!(
+            "Recording stopped: path={}, original={:.2}s, filtered={:.2}s, latency={}ms, vad_segments={}",
+            wav_path,
+            original_duration_ms as f64 / 1000.0,
+            duration_ms as f64 / 1000.0,
+            latency_ms,
+            response["vad_segments"].as_u64().unwrap_or(0)
+        );
+    } else {
+        info!(
+            "Recording stopped: path={}, duration={:.2}s, latency={}ms, samples={}",
+            wav_path,
+            duration_ms as f64 / 1000.0,
+            latency_ms,
+            samples
+        );
+    }
 
     // Validate file exists
     let file_size = fs::metadata(wav_path)?.len();
@@ -167,6 +188,8 @@ pub fn stop_recording(config: &AudioConfig) -> Result<RecordingResult, Box<dyn E
         audio_file: PathBuf::from(wav_path),
         duration_ms,
         samples,
+        vad_applied,
+        original_duration_ms,
     })
 }
 

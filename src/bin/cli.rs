@@ -1031,6 +1031,7 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
 }
 
 /// Handle GUI conversation mode - show egui window with conversation
+#[allow(dead_code)]
 fn handle_gui_conversation(user_text: &str, assistant_text: &str) -> Result<(), Box<dyn Error>> {
     debug!("Handling GUI conversation mode");
 

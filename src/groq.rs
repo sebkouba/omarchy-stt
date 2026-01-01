@@ -1,5 +1,5 @@
 use crate::tools::ToolConfig;
-use log::{debug, error, info, warn};
+use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::error::Error;
@@ -223,6 +223,7 @@ impl GroqClient {
     }
 
     /// Async version of complete with full tool calling support
+    #[allow(dead_code)]
     async fn complete_async(
         &self,
         prompt: &str,

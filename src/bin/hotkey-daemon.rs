@@ -13,13 +13,17 @@
 
 use evdev::Key;
 use log::{debug, info, warn};
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Track when recording started (for progress estimation before stop_recording returns)
+static RECORDING_START_TIME: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
 use tokio::sync::mpsc;
 use transcribe_rs::{
     clipboard, config::Config, eww_widget, paste, recording,
@@ -95,8 +99,8 @@ trait Request {
 /// Events from D-Bus signals
 #[derive(Debug, Clone)]
 enum ShortcutEvent {
-    Activated { shortcut_id: String, timestamp: u64 },
-    Deactivated { shortcut_id: String, timestamp: u64 },
+    Activated { shortcut_id: String, #[allow(dead_code)] timestamp: u64 },
+    Deactivated { shortcut_id: String, #[allow(dead_code)] timestamp: u64 },
 }
 
 /// Active binding info stored during recording
@@ -137,6 +141,8 @@ enum RecordingState {
 fn start_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     info!("Starting recording...");
     recording::start_recording(&config.audio)?;
+    // Track start time for progress estimation
+    *RECORDING_START_TIME.lock().unwrap() = Some(Instant::now());
     eww_widget::show_recording_widget();
     Ok(())
 }
@@ -145,6 +151,8 @@ fn start_recording(config: &Config) -> Result<(), Box<dyn Error>> {
 fn stop_recording(config: &Config) -> Result<RecordingResult, Box<dyn Error>> {
     info!("Stopping recording...");
     eww_widget::hide_recording_widget();
+    // Clear start time tracking
+    *RECORDING_START_TIME.lock().unwrap() = None;
     let result = recording::stop_recording(&config.audio)?;
     Ok(result)
 }
@@ -153,6 +161,8 @@ fn stop_recording(config: &Config) -> Result<RecordingResult, Box<dyn Error>> {
 fn cancel_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     info!("Cancelling recording...");
     eww_widget::hide_recording_widget();
+    // Clear start time tracking
+    *RECORDING_START_TIME.lock().unwrap() = None;
     recording::cancel_recording(&config.audio)?;
     Ok(())
 }
@@ -538,19 +548,38 @@ fn start_api_progress_animation(estimated_ms: u64, stop_flag: Arc<AtomicBool>) {
 /// Process the complete transcription workflow
 /// Returns the final transcribed text on success (for repaste feature)
 fn process_transcription(config: &Config, prompt_name: Option<&str>) -> Result<String, Box<dyn Error>> {
-    let recording_result = stop_recording(config)?;
-    let audio_file = &recording_result.audio_file;
-    let recording_ms = recording_result.duration_ms;
+    // 1. Estimate audio duration from tracked start time (before stop_recording)
+    let estimated_audio_ms = RECORDING_START_TIME
+        .lock()
+        .unwrap()
+        .map(|start| start.elapsed().as_millis() as u64)
+        .unwrap_or(5000); // Default 5s if tracking failed
 
-    debug!("Recording duration: {}ms", recording_ms);
-
-    let estimated_ms = transcription_timing::estimate_transcription_time(recording_ms).unwrap_or(0);
-    debug!("Estimated transcription time: {}ms", estimated_ms);
+    // 2. Calculate total estimate (VAD + transcription) and start progress IMMEDIATELY
+    let estimated_total_ms = transcription_timing::estimate_total_processing_time(estimated_audio_ms);
+    debug!(
+        "Starting progress: estimated_audio={}ms, estimated_total={}ms",
+        estimated_audio_ms, estimated_total_ms
+    );
 
     let stop_animation = Arc::new(AtomicBool::new(false));
-    start_progress_animation(estimated_ms, stop_animation.clone());
+    start_progress_animation(estimated_total_ms, stop_animation.clone());
 
-    let mut timer = transcription_timing::TranscriptionTimer::new(recording_ms);
+    // 3. Now call stop_recording (VAD processing happens here, but progress is showing)
+    let recording_result = stop_recording(config)?;
+    let audio_file = &recording_result.audio_file;
+
+    // 4. Use original duration for timing log (preserves accuracy when VAD filters audio)
+    let recording_ms_for_timing = recording_result.original_duration_ms;
+    debug!(
+        "Recording stopped: filtered={}ms, original={}ms, vad_applied={}",
+        recording_result.duration_ms,
+        recording_result.original_duration_ms,
+        recording_result.vad_applied
+    );
+
+    // 5. Start transcription timer with original duration
+    let mut timer = transcription_timing::TranscriptionTimer::new(recording_ms_for_timing);
     timer.start();
 
     let transcription = transcribe_file(audio_file)?;

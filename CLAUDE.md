@@ -188,6 +188,9 @@ This project uses versioned builds to prevent development from interfering with 
 - Testing uses `builds/staging/` directly
 - `promote.sh` creates a timestamped snapshot and updates the symlink
 
+### Claude Development Process
+**IMPORTANT:** When finishing an implementation, ALWAYS run `./scripts/build.sh` to catch any compilation errors or warnings before considering the work complete. Fix all warnings and errors before moving on. The user will run `./scripts/promote.sh` and `./scripts/rollback.sh` manually when they want to test or revert changes.
+
 ### Scripts Summary
 | Script | Effect |
 |--------|--------|
