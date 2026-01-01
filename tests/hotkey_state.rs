@@ -166,7 +166,7 @@ mod push_to_talk {
 
         // 1. Activate (press key)
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -182,7 +182,7 @@ mod push_to_talk {
         };
 
         // 3. Deactivate (release key)
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -198,7 +198,7 @@ mod push_to_talk {
 
         // Activate with prompt binding
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-q"), &ctx);
+        let result = state.transition(activated("transcribe-q"), &ctx, Instant::now());
 
         assert!(matches!(
             &result.new_state,
@@ -211,7 +211,7 @@ mod push_to_talk {
             shortcut_id: "transcribe-q".to_string(),
             prompt: Some("grammar".to_string()),
         };
-        let result = state.transition(deactivated("transcribe-q"), &ctx);
+        let result = state.transition(deactivated("transcribe-q"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -233,7 +233,7 @@ mod push_to_talk {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         // At exactly threshold, should transcribe (hold behavior)
         assert_eq!(result.new_state, RecordingState::Idle);
@@ -254,7 +254,7 @@ mod push_to_talk {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -275,7 +275,7 @@ mod push_to_talk {
         };
 
         // Release a different key
-        let result = state.transition(deactivated("transcribe-q"), &ctx);
+        let result = state.transition(deactivated("transcribe-q"), &ctx, Instant::now());
 
         // Should remain in recording state
         assert!(matches!(
@@ -297,7 +297,7 @@ mod push_to_talk {
         };
 
         // Try to activate another key
-        let result = state.transition(activated("transcribe-q"), &ctx);
+        let result = state.transition(activated("transcribe-q"), &ctx, Instant::now());
 
         // Should remain in recording state with original key
         assert!(matches!(
@@ -327,7 +327,7 @@ mod long_recording {
             prompt: Some("grammar".to_string()),
         };
 
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             &result.new_state,
@@ -350,7 +350,7 @@ mod long_recording {
         };
 
         // Tap same key
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should enter PendingTranscription
         assert!(matches!(
@@ -371,7 +371,7 @@ mod long_recording {
             prompt: Some("grammar".to_string()),
         };
 
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -394,7 +394,7 @@ mod long_recording {
         };
 
         // Release the key (should be ignored)
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -410,7 +410,7 @@ mod long_recording {
         // Step 1: Tap to start (press + quick release)
         let ctx = make_ctx(&bindings);
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
 
         // Quick release (tap)
@@ -419,7 +419,7 @@ mod long_recording {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::LongRecording { .. }
@@ -432,7 +432,7 @@ mod long_recording {
             prompt: None,
             entered_at: Instant::now() - Duration::from_secs(10), // Waited 10 seconds
         };
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingTranscription { .. }
@@ -444,7 +444,7 @@ mod long_recording {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
             result.actions,
@@ -472,7 +472,7 @@ mod double_tap {
             entered_at: Instant::now() - Duration::from_millis(500), // 500ms ago
         };
 
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             &result.new_state,
@@ -495,7 +495,7 @@ mod double_tap {
             text: "Hello world".to_string(),
         };
 
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -517,7 +517,7 @@ mod double_tap {
             entered_at: Instant::now() - Duration::from_millis(500),
         };
 
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert!(result.actions.contains(&Action::Notify {
@@ -538,7 +538,7 @@ mod double_tap {
             entered_at: Instant::now() - Duration::from_millis(1500),
         };
 
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // At exactly threshold, should NOT be repaste (enters PendingTranscription)
         assert!(matches!(
@@ -559,7 +559,7 @@ mod double_tap {
             entered_at: Instant::now() - Duration::from_millis(1499),
         };
 
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should trigger repaste
         assert!(matches!(
@@ -579,7 +579,7 @@ mod double_tap {
         };
 
         // Different key deactivated
-        let result = state.clone().transition(deactivated("transcribe-q"), &ctx);
+        let result = state.clone().transition(deactivated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingRepaste { .. }
@@ -587,7 +587,7 @@ mod double_tap {
         assert!(result.actions.is_empty());
 
         // Any activation
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingRepaste { .. }
@@ -614,7 +614,7 @@ mod control_keys {
             entered_at: Instant::now() - Duration::from_secs(5),
         };
 
-        let result = state.transition(activated("transcribe-enter"), &ctx);
+        let result = state.transition(activated("transcribe-enter"), &ctx, Instant::now());
 
         // Should stay in LongRecording
         assert!(matches!(
@@ -647,7 +647,7 @@ mod control_keys {
             entered_at: Instant::now(),
         };
 
-        let result = state.transition(activated("transcribe-escape"), &ctx);
+        let result = state.transition(activated("transcribe-escape"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -674,7 +674,7 @@ mod control_keys {
             entered_at: Instant::now() - Duration::from_secs(5),
         };
 
-        let result = state.transition(activated("transcribe-enter"), &ctx);
+        let result = state.transition(activated("transcribe-enter"), &ctx, Instant::now());
 
         // Must preserve transcribe-q, NOT set to transcribe-enter
         if let RecordingState::LongRecording { shortcut_id, .. } = &result.new_state {
@@ -696,7 +696,7 @@ mod control_keys {
             prompt: None,
             entered_at: Instant::now() - Duration::from_secs(5),
         };
-        let result = state.transition(activated("transcribe-enter"), &ctx);
+        let result = state.transition(activated("transcribe-enter"), &ctx, Instant::now());
 
         assert!(result
             .actions
@@ -708,7 +708,7 @@ mod control_keys {
             prompt: None,
             entered_at: Instant::now() - Duration::from_secs(3),
         };
-        let result = state.transition(activated("transcribe-enter"), &ctx);
+        let result = state.transition(activated("transcribe-enter"), &ctx, Instant::now());
 
         // Should also submit and continue
         assert!(result
@@ -741,7 +741,7 @@ mod prompt_switching {
         };
 
         // Press "q" which has "grammar" prompt
-        let result = state.transition(activated("transcribe-q"), &ctx);
+        let result = state.transition(activated("transcribe-q"), &ctx, Instant::now());
 
         // Should restart with new prompt
         assert!(matches!(
@@ -772,7 +772,7 @@ mod prompt_switching {
         };
 
         // Press "e" which has no prompt
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         assert!(matches!(
             &result.new_state,
@@ -793,7 +793,7 @@ mod prompt_switching {
         };
 
         // Press unknown key
-        let result = state.transition(activated("transcribe-unknown"), &ctx);
+        let result = state.transition(activated("transcribe-unknown"), &ctx, Instant::now());
 
         // Should stay in same state
         assert!(matches!(
@@ -835,7 +835,7 @@ mod invariants {
                     entered_at: Instant::now() - Duration::from_secs(5),
                 };
 
-                let result = state.transition(event.clone(), &ctx);
+                let result = state.transition(event.clone(), &ctx, Instant::now());
                 assert_no_control_key_pollution(&result.new_state);
             }
         }
@@ -852,7 +852,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert_eq!(result.new_state, RecordingState::Idle);
 
         // LongRecording -> Idle via escape
@@ -861,7 +861,7 @@ mod invariants {
             prompt: None,
             entered_at: Instant::now(),
         };
-        let result = state.transition(activated("transcribe-escape"), &ctx);
+        let result = state.transition(activated("transcribe-escape"), &ctx, Instant::now());
         assert_eq!(result.new_state, RecordingState::Idle);
 
         // PendingTranscription -> Idle via release
@@ -869,7 +869,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert_eq!(result.new_state, RecordingState::Idle);
 
         // PendingRepaste -> Idle via release
@@ -877,7 +877,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             text: "test".to_string(),
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert_eq!(result.new_state, RecordingState::Idle);
     }
 
@@ -892,7 +892,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert!(has_bind_action(&result.actions));
 
         // Escape to cancel (must unbind)
@@ -901,7 +901,7 @@ mod invariants {
             prompt: None,
             entered_at: Instant::now(),
         };
-        let result = state.transition(activated("transcribe-escape"), &ctx);
+        let result = state.transition(activated("transcribe-escape"), &ctx, Instant::now());
         assert!(has_unbind_action(&result.actions));
     }
 
@@ -916,7 +916,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert!(has_bind_action(&result.actions));
 
         // Finish long recording (must unbind)
@@ -925,7 +925,7 @@ mod invariants {
             prompt: None,
             entered_at: Instant::now() - Duration::from_secs(5),
         };
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(has_unbind_action(&result.actions));
     }
 
@@ -940,7 +940,7 @@ mod invariants {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert!(has_bind_action(&result.actions));
 
         // Double tap (must unbind)
@@ -949,7 +949,7 @@ mod invariants {
             prompt: None,
             entered_at: Instant::now() - Duration::from_millis(500),
         };
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(has_unbind_action(&result.actions));
     }
 
@@ -966,7 +966,7 @@ mod invariants {
         };
 
         // Switch prompt (must unbind)
-        let result = state.transition(activated("transcribe-q"), &ctx);
+        let result = state.transition(activated("transcribe-q"), &ctx, Instant::now());
         assert!(has_unbind_action(&result.actions));
     }
 
@@ -976,7 +976,7 @@ mod invariants {
         let ctx = make_ctx(&bindings);
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-unknown"), &ctx);
+        let result = state.transition(activated("transcribe-unknown"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert!(result.actions.is_empty());
@@ -988,7 +988,7 @@ mod invariants {
         let ctx = make_ctx(&bindings);
 
         let state = RecordingState::Idle;
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert!(result.actions.is_empty());
@@ -1010,7 +1010,7 @@ mod debounce {
         ctx.last_repaste_time = Some(Instant::now() - Duration::from_millis(500));
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should be ignored
         assert_eq!(result.new_state, RecordingState::Idle);
@@ -1025,7 +1025,7 @@ mod debounce {
         ctx.last_repaste_time = Some(Instant::now() - Duration::from_millis(1500));
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should start recording
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
@@ -1040,7 +1040,7 @@ mod debounce {
         ctx.last_repaste_time = Some(Instant::now() - Duration::from_millis(1000));
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // At exact boundary, should allow (>= means debounce period has passed)
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
@@ -1054,7 +1054,7 @@ mod debounce {
         ctx.last_repaste_time = Some(Instant::now() - Duration::from_millis(999));
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should still be debounced
         assert_eq!(result.new_state, RecordingState::Idle);
@@ -1067,7 +1067,7 @@ mod debounce {
         let ctx = make_ctx(&bindings); // last_repaste_time is None
 
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should start recording normally
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
@@ -1088,7 +1088,7 @@ mod edge_cases {
 
         // Rapid: activate -> deactivate (tap) -> activate
         let state = RecordingState::Idle;
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
 
         // Quick release (tap)
@@ -1097,7 +1097,7 @@ mod edge_cases {
             shortcut_id: "transcribe-e".to_string(),
             prompt: None,
         };
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::LongRecording { .. }
@@ -1109,7 +1109,7 @@ mod edge_cases {
             prompt: None,
             entered_at: Instant::now(),
         };
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
         // No transcription to repaste, goes to Idle with notification
         assert_eq!(result.new_state, RecordingState::Idle);
     }
@@ -1125,7 +1125,7 @@ mod edge_cases {
         };
 
         // Try activation
-        let result = state.clone().transition(activated("transcribe-q"), &ctx);
+        let result = state.clone().transition(activated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingTranscription { .. }
@@ -1133,7 +1133,7 @@ mod edge_cases {
         assert!(result.actions.is_empty());
 
         // Try wrong deactivation
-        let result = state.transition(deactivated("transcribe-q"), &ctx);
+        let result = state.transition(deactivated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingTranscription { .. }
@@ -1153,7 +1153,7 @@ mod edge_cases {
             prompt: Some("grammar".to_string()),
         };
 
-        let result = state.transition(deactivated("transcribe-e"), &ctx);
+        let result = state.transition(deactivated("transcribe-e"), &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -1176,7 +1176,7 @@ mod edge_cases {
             entered_at: Instant::now() - Duration::from_secs(600),
         };
 
-        let result = state.transition(activated("transcribe-e"), &ctx);
+        let result = state.transition(activated("transcribe-e"), &ctx, Instant::now());
 
         // Should finish normally (not repaste since way past double-tap window)
         assert!(matches!(
@@ -1198,7 +1198,7 @@ mod edge_cases {
         };
 
         // Switch to q (grammar)
-        let result = state.transition(activated("transcribe-q"), &ctx);
+        let result = state.transition(activated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             &result.new_state,
             RecordingState::Recording { prompt: Some(p), .. } if p == "grammar"
@@ -1210,7 +1210,7 @@ mod edge_cases {
             shortcut_id: "transcribe-q".to_string(),
             prompt: Some("grammar".to_string()),
         };
-        let result = state.transition(deactivated("transcribe-q"), &ctx);
+        let result = state.transition(deactivated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::LongRecording {
@@ -1225,7 +1225,7 @@ mod edge_cases {
             prompt: Some("grammar".to_string()),
             entered_at: Instant::now() - Duration::from_secs(5),
         };
-        let result = state.transition(activated("transcribe-w"), &ctx);
+        let result = state.transition(activated("transcribe-w"), &ctx, Instant::now());
         assert!(matches!(
             &result.new_state,
             RecordingState::Recording { shortcut_id, prompt: Some(p), .. }
@@ -1264,10 +1264,11 @@ mod api_tests {
 
         assert!(sm.last_repaste_time().is_none());
 
-        sm.record_repaste();
+        let now = Instant::now();
+        sm.record_repaste(now);
 
         assert!(sm.last_repaste_time().is_some());
-        assert!(sm.last_repaste_time().unwrap().elapsed() < Duration::from_millis(100));
+        assert_eq!(sm.last_repaste_time(), Some(now));
     }
 
     #[test]
@@ -1281,6 +1282,7 @@ mod api_tests {
             TAP_THRESHOLD,
             DOUBLE_TAP_WINDOW,
             REPASTE_DEBOUNCE,
+            Instant::now(),
         );
 
         assert_eq!(actions, vec![Action::StartRecording]);
@@ -1299,13 +1301,12 @@ mod api_tests {
             TAP_THRESHOLD,
             DOUBLE_TAP_WINDOW,
             REPASTE_DEBOUNCE,
+            Instant::now(),
         );
         assert_eq!(actions, vec![Action::StartRecording]);
 
-        // We need to simulate the state with a past press_time
-        // Since handle_event uses Instant::now(), we can't easily test hold behavior
-        // This is a limitation of testing real-time behavior
-        // The unit tests in src/hotkey_state.rs handle this by creating states directly
+        // Now that handle_event takes a time parameter, we can properly test timing
+        // The unit tests in src/hotkey_state.rs demonstrate this pattern
     }
 
     #[test]
@@ -1319,6 +1320,7 @@ mod api_tests {
             TAP_THRESHOLD,
             DOUBLE_TAP_WINDOW,
             REPASTE_DEBOUNCE,
+            Instant::now(),
         );
 
         assert!(actions.is_empty());
@@ -1336,6 +1338,7 @@ mod api_tests {
             TAP_THRESHOLD,
             DOUBLE_TAP_WINDOW,
             REPASTE_DEBOUNCE,
+            Instant::now(),
         );
 
         assert!(actions.is_empty());

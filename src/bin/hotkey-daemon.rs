@@ -30,7 +30,7 @@ use transcribe_rs::{
     config::Config,
     eww_widget,
     hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine},
-    paste, recording,
+    recording,
     transcription_corrections::TranscriptionCorrector,
     transcription_timing,
 };
@@ -325,27 +325,24 @@ fn wait_for_modifiers_released() {
     );
 }
 
-/// Copy to clipboard and paste
+/// Copy to clipboard and paste using the shared workflow
 fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
-    let text = if config.integration.add_space_after_punctuation {
-        clipboard::add_trailing_space_after_punctuation(text)
-    } else {
-        text.to_string()
-    };
-
-    clipboard::copy_to_clipboard(&text)?;
-
+    // Wait for all modifier keys to be released before the workflow
+    // This prevents Ctrl+V from combining with held modifiers
     if config.integration.auto_paste {
-        // Wait for all modifier keys to be released before pasting
-        // This prevents Ctrl+V from combining with held modifiers
         debug!("Waiting for modifiers to be released before paste...");
         wait_for_modifiers_released();
-
-        if let Err(e) = paste::paste_from_clipboard() {
-            warn!("Paste failed: {}", e);
-        }
     }
 
+    // Use the shared copy/paste workflow with clipboard preservation
+    let options = clipboard::PasteWorkflowOptions {
+        add_trailing_space: config.integration.add_space_after_punctuation,
+        auto_paste: config.integration.auto_paste,
+        preserve_clipboard: config.integration.prevent_clipboard_pollution,
+        restore_delay_ms: 100,
+    };
+
+    clipboard::copy_paste_workflow(text, &options)?;
     Ok(())
 }
 
@@ -793,7 +790,7 @@ fn execute_action(action: &Action, config: &Config, state_machine: &mut StateMac
                         text.clone()
                     };
                     notifications::notify("Repasted", &preview, 2000).ok();
-                    state_machine.record_repaste();
+                    state_machine.record_repaste(Instant::now());
                     eprintln!("[OK] Repaste successful");
                     println!(">>> DOUBLE-TAP REPASTE <<<");
                 }
@@ -1047,6 +1044,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             tap_threshold,
             double_tap_window,
             repaste_debounce,
+            Instant::now(),
         );
 
         // Execute all actions

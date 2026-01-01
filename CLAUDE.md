@@ -13,6 +13,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a v2 fork of the original project at `/home/seb/code/cloned/transcribe-rs`. Uses separate socket paths (`/tmp/transcribe-rs-v2.sock` for transcription, `/tmp/transcribe-rs-v2-recording.sock` for recording) to allow simultaneous operation.
 
+## ⚠️ Primary Code Path: Hotkey Daemon
+
+**IMPORTANT**: The hotkey daemon (`src/bin/hotkey-daemon.rs`) is the primary/active code path for dictation. The CLI (`src/bin/cli.rs`) exists for Hyprland keybinding users but is not the main path.
+
+When implementing features that affect dictation workflow (clipboard, paste, notifications, LLM processing), ensure the hotkey daemon has the implementation. The CLI may have legacy or parallel implementations that are less frequently used.
+
+### Shared Code Patterns
+
+To prevent divergent implementations, shared functionality should be in library modules:
+
+| Feature | Shared Location | Used By |
+|---------|-----------------|---------|
+| Copy/paste with clipboard preservation | `src/clipboard.rs::copy_paste_workflow()` | hotkey-daemon, cli |
+| Transcription corrections | `src/transcription_corrections.rs` | hotkey-daemon, cli |
+| Recording control | `src/recording.rs` | hotkey-daemon, cli |
+
+When adding clipboard or paste features, use `clipboard::copy_paste_workflow()` - do NOT reimplement the logic.
+
 ## High-Level Architecture
 
 ### TranscriptionEngine Trait Pattern
@@ -49,13 +67,15 @@ transcription_corrections::apply_corrections() fixes common errors via fuzzy mat
     ↓
 Optional: groq::process_with_llm() for LLM post-processing (grammar, formatting, tools)
     ↓
-clipboard::add_trailing_space_after_punctuation() adds space after . ! ?
+clipboard::copy_paste_workflow() handles the entire copy/paste/restore flow:
+  - Saves original clipboard content
+  - Adds trailing space after punctuation (.!?)
+  - Copies text to clipboard via wl-copy
+  - Pastes via ydotool (Ctrl+V or Ctrl+Shift+V for terminals)
+  - Waits 100ms for app to read clipboard
+  - Restores original clipboard content
     ↓
-clipboard::copy_to_clipboard() uses wl-copy subprocess
-    ↓
-paste::paste_from_clipboard() uses ydotool to simulate Ctrl+V or Ctrl+Shift+V
-    ↓
-Text appears in active window
+Text appears in active window (clipboard restored to pre-dictation state)
     ↓
 Optional: dictation_logger::log() records to CSV for analysis
 ```

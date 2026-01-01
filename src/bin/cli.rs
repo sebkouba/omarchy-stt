@@ -11,7 +11,7 @@ use transcribe_rs::{
     gui::{
         is_window_running, recover_orphaned_conversation, ConversationState, ConversationWindow,
     },
-    logging, notifications, ocr, paste, performance_log, recording, timing,
+    logging, notifications, ocr, performance_log, recording, timing,
 };
 
 #[derive(Parser)]
@@ -579,73 +579,53 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
             m.mark_paste_done();
         }
     } else {
-        // Normal flow: copy to clipboard, paste, and restore original clipboard
+        // Normal flow: copy to clipboard, paste, and optionally restore original clipboard
+        // Uses shared workflow from clipboard module
 
-        // Save original clipboard content first
-        debug!("Saving original clipboard content...");
-        let saved_clipboard = clipboard::SavedClipboard::save();
-        debug!(
-            "Clipboard saved (has_content: {})",
-            saved_clipboard.has_content()
-        );
-
-        // Copy transcription to clipboard
-        debug!("Copying to clipboard...");
-        match clipboard::copy_to_clipboard(&text) {
-            Ok(_) => {
-                debug!("Clipboard copy successful");
-                if let Some(ref mut m) = metrics {
-                    m.mark_clipboard_done();
-                }
-            }
-            Err(e) => {
-                error!("Clipboard copy failed: {}", e);
-                eprintln!("Clipboard error: {}", e);
-                return Err(e);
-            }
-        }
-
-        // Create preview
+        // Create preview for notifications
         let preview = if text.len() > 100 {
             format!("{}...", &text[..100])
         } else {
             text.clone()
         };
-        debug!("Preview: '{}'", preview);
 
-        // Auto-paste if enabled
-        if config.integration.auto_paste {
-            debug!("Attempting auto-paste...");
-            match paste::paste_from_clipboard() {
-                Ok(_) => {
-                    debug!("Paste successful");
+        let options = clipboard::PasteWorkflowOptions {
+            add_trailing_space: config.integration.add_space_after_punctuation,
+            auto_paste: config.integration.auto_paste,
+            preserve_clipboard: config.integration.prevent_clipboard_pollution,
+            restore_delay_ms: 100,
+        };
+
+        match clipboard::copy_paste_workflow(&text, &options) {
+            Ok(result) => {
+                // Mark clipboard done (copy always happens)
+                if let Some(ref mut m) = metrics {
+                    m.mark_clipboard_done();
+                }
+
+                // Handle paste result and notifications
+                if result.paste_attempted {
+                    if result.paste_succeeded == Some(true) {
+                        if let Some(ref mut m) = metrics {
+                            m.mark_paste_done();
+                        }
+                        notifications::notify_transcription_pasted(&preview).ok();
+                    } else {
+                        notifications::notify_transcription_copied(&preview).ok();
+                    }
+                } else {
+                    // Auto-paste was disabled
                     if let Some(ref mut m) = metrics {
                         m.mark_paste_done();
                     }
-                    notifications::notify_transcription_pasted(&preview).ok();
-
-                    // Restore original clipboard content after successful paste
-                    debug!("Restoring original clipboard content...");
-                    if let Err(e) = saved_clipboard.restore() {
-                        warn!("Failed to restore clipboard: {}", e);
-                    } else {
-                        debug!("Clipboard restored successfully");
-                    }
-                }
-                Err(e) => {
-                    warn!("Paste failed: {}, clipboard only", e);
                     notifications::notify_transcription_copied(&preview).ok();
-                    // Don't restore clipboard if paste failed - user may want to manually paste
                 }
             }
-        } else {
-            debug!("Auto-paste disabled in config, clipboard only");
-            // Mark paste as done even if disabled, to track total workflow time
-            if let Some(ref mut m) = metrics {
-                m.mark_paste_done();
+            Err(e) => {
+                error!("Clipboard workflow failed: {}", e);
+                eprintln!("Clipboard error: {}", e);
+                return Err(e);
             }
-            notifications::notify_transcription_copied(&preview).ok();
-            // Don't restore clipboard when auto-paste disabled - user needs clipboard content
         }
     }
 

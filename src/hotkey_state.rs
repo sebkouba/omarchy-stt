@@ -195,7 +195,10 @@ impl RecordingState {
     ///
     /// This is the core state machine logic, separated from side effects.
     /// The caller should execute the returned actions after updating state.
-    pub fn transition(self, event: HotkeyEvent, ctx: &TransitionContext) -> TransitionResult {
+    ///
+    /// The `now` parameter allows tests to control time for deterministic testing.
+    /// Production code should pass `Instant::now()`.
+    pub fn transition(self, event: HotkeyEvent, ctx: &TransitionContext, now: Instant) -> TransitionResult {
         match (&self, &event) {
             // ─────────────────────────────────────────────────────────────────
             // IDLE state
@@ -203,7 +206,7 @@ impl RecordingState {
             (RecordingState::Idle, HotkeyEvent::Activated { shortcut_id }) => {
                 // Check debounce after repaste
                 if let Some(repaste_time) = ctx.last_repaste_time {
-                    if repaste_time.elapsed() < ctx.repaste_debounce {
+                    if now.duration_since(repaste_time) < ctx.repaste_debounce {
                         return TransitionResult {
                             new_state: RecordingState::Idle,
                             actions: vec![],
@@ -215,7 +218,7 @@ impl RecordingState {
                 if let Some(binding) = ctx.binding_map.get(shortcut_id) {
                     TransitionResult {
                         new_state: RecordingState::Recording {
-                            press_time: Instant::now(),
+                            press_time: now,
                             shortcut_id: shortcut_id.clone(),
                             prompt: binding.prompt.clone(),
                         },
@@ -249,7 +252,7 @@ impl RecordingState {
                 },
                 HotkeyEvent::Deactivated { shortcut_id },
             ) if shortcut_id == active_id => {
-                let duration = press_time.elapsed();
+                let duration = now.duration_since(*press_time);
 
                 if duration < ctx.tap_threshold {
                     // Tap: enter long recording mode
@@ -257,7 +260,7 @@ impl RecordingState {
                         new_state: RecordingState::LongRecording {
                             shortcut_id: shortcut_id.clone(),
                             prompt: prompt.clone(),
-                            entered_at: Instant::now(),
+                            entered_at: now,
                         },
                         actions: vec![Action::BindLongRecordingKeys],
                     }
@@ -299,7 +302,7 @@ impl RecordingState {
                 },
                 HotkeyEvent::Activated { shortcut_id },
             ) if shortcut_id == active_id => {
-                let time_in_long_recording = entered_at.elapsed();
+                let time_in_long_recording = now.duration_since(*entered_at);
 
                 if time_in_long_recording < ctx.double_tap_window {
                     // Double-tap: cancel recording and prepare to repaste
@@ -350,7 +353,7 @@ impl RecordingState {
                     new_state: RecordingState::LongRecording {
                         shortcut_id: original_id.clone(),
                         prompt: prompt.clone(),
-                        entered_at: Instant::now(),
+                        entered_at: now,
                     },
                     actions: vec![
                         Action::UnbindLongRecordingKeys,
@@ -384,7 +387,7 @@ impl RecordingState {
                 if let Some(binding) = ctx.binding_map.get(shortcut_id) {
                     TransitionResult {
                         new_state: RecordingState::Recording {
-                            press_time: Instant::now(),
+                            press_time: now,
                             shortcut_id: shortcut_id.clone(),
                             prompt: binding.prompt.clone(),
                         },
@@ -507,8 +510,11 @@ impl StateMachine {
     }
 
     /// Record that a repaste just occurred (for debounce).
-    pub fn record_repaste(&mut self) {
-        self.last_repaste_time = Some(Instant::now());
+    ///
+    /// The `at` parameter allows tests to control time for deterministic testing.
+    /// Production code should pass `Instant::now()`.
+    pub fn record_repaste(&mut self, at: Instant) {
+        self.last_repaste_time = Some(at);
     }
 
     /// Handle an event and return the actions to execute.
@@ -516,7 +522,10 @@ impl StateMachine {
     /// The caller should execute the returned actions. For certain actions,
     /// the caller should call back:
     /// - After successful transcription: call `cache_transcription(text)`
-    /// - After repaste: call `record_repaste()`
+    /// - After repaste: call `record_repaste(now)`
+    ///
+    /// The `now` parameter allows tests to control time for deterministic testing.
+    /// Production code should pass `Instant::now()`.
     pub fn handle_event(
         &mut self,
         event: HotkeyEvent,
@@ -524,6 +533,7 @@ impl StateMachine {
         tap_threshold: Duration,
         double_tap_window: Duration,
         repaste_debounce: Duration,
+        now: Instant,
     ) -> Vec<Action> {
         let ctx = TransitionContext {
             tap_threshold,
@@ -535,7 +545,7 @@ impl StateMachine {
         };
 
         let result =
-            std::mem::replace(&mut self.state, RecordingState::Idle).transition(event, &ctx);
+            std::mem::replace(&mut self.state, RecordingState::Idle).transition(event, &ctx, now);
 
         self.state = result.new_state;
         result.actions
@@ -590,7 +600,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -609,7 +619,7 @@ mod tests {
             shortcut_id: "transcribe-q".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -628,7 +638,7 @@ mod tests {
             shortcut_id: "transcribe-unknown".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert!(result.actions.is_empty());
@@ -651,7 +661,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -677,7 +687,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -704,7 +714,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -732,7 +742,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -761,7 +771,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -792,7 +802,7 @@ mod tests {
             shortcut_id: "transcribe-enter".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         // Should stay in LongRecording (with new entered_at)
         assert!(matches!(
@@ -826,7 +836,7 @@ mod tests {
             shortcut_id: "transcribe-escape".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -858,7 +868,7 @@ mod tests {
             shortcut_id: "transcribe-q".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert!(matches!(
             result.new_state,
@@ -889,7 +899,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -914,7 +924,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         assert_eq!(result.new_state, RecordingState::Idle);
         assert_eq!(
@@ -937,7 +947,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         // Should be ignored
         assert_eq!(result.new_state, RecordingState::Idle);
@@ -956,7 +966,7 @@ mod tests {
             shortcut_id: "transcribe-e".to_string(),
         };
 
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         // Should not be debounced
         assert!(matches!(result.new_state, RecordingState::Recording { .. }));
@@ -977,6 +987,7 @@ mod tests {
             Duration::from_millis(200),
             Duration::from_millis(1500),
             Duration::from_millis(1000),
+            Instant::now(),
         );
 
         assert_eq!(actions, vec![Action::StartRecording]);
@@ -1060,6 +1071,7 @@ mod tests {
                     shortcut_id: "transcribe-enter".to_string(),
                 },
                 &ctx,
+                Instant::now(),
             );
 
             assert_no_control_key_pollution(&result.new_state);
@@ -1083,6 +1095,7 @@ mod tests {
                 shortcut_id: "transcribe-escape".to_string(),
             },
             &ctx,
+            Instant::now(),
         );
 
         // Escape goes to Idle, but let's still check
@@ -1128,7 +1141,7 @@ mod tests {
                     entered_at: Instant::now() - Duration::from_secs(5),
                 };
 
-                let result = state.transition(event.clone(), &ctx);
+                let result = state.transition(event.clone(), &ctx, Instant::now());
                 assert_no_control_key_pollution(&result.new_state);
             }
         }
@@ -1158,7 +1171,7 @@ mod tests {
         let event = HotkeyEvent::Activated {
             shortcut_id: "transcribe-enter".to_string(),
         };
-        let result = state.transition(event, &ctx);
+        let result = state.transition(event, &ctx, Instant::now());
 
         // Should stay in LongRecording with original shortcut_id preserved
         assert!(
@@ -1193,7 +1206,7 @@ mod tests {
         let event2 = HotkeyEvent::Activated {
             shortcut_id: "transcribe-enter".to_string(),
         };
-        let result2 = state_after_first_enter.transition(event2, &ctx);
+        let result2 = state_after_first_enter.transition(event2, &ctx, Instant::now());
 
         // Should still be in LongRecording and trigger SubmitAndContinue
         assert!(

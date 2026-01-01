@@ -67,10 +67,17 @@ pub struct DaemonConfig {
 pub struct IntegrationConfig {
     /// Automatically paste transcription into active window
     pub auto_paste: bool,
+    /// Restore original clipboard content after pasting (preserve user's clipboard)
+    #[serde(default = "default_true")]
+    pub prevent_clipboard_pollution: bool,
     /// Add space after sentence-ending punctuation (.!?)
     pub add_space_after_punctuation: bool,
     /// List of terminal application classes (for Ctrl+Shift+V vs Ctrl+V)
     pub terminal_apps: Vec<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Transcription error corrections (phonetic/acoustic fixes)
@@ -252,6 +259,7 @@ impl Default for IntegrationConfig {
     fn default() -> Self {
         IntegrationConfig {
             auto_paste: true,
+            prevent_clipboard_pollution: true,
             add_space_after_punctuation: true,
             terminal_apps: vec![
                 "alacritty".to_string(),

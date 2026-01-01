@@ -7,9 +7,11 @@
 //! 1. Sending sequences of events through the state machine
 //! 2. Verifying action ordering and correctness
 //! 3. Testing cache behavior across sessions
+//!
+//! All timing is controlled via explicit `Instant` values - no `thread::sleep()`.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use transcribe_rs::config::HotkeyBinding;
 use transcribe_rs::hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine};
 
@@ -67,12 +69,13 @@ fn make_binding_map() -> HashMap<String, HotkeyBinding> {
     map
 }
 
-/// Helper to send an event and get actions
+/// Helper to send an event and get actions with controlled time
 fn send_event(
     sm: &mut StateMachine,
     event: HotkeyEvent,
     bindings: &HashMap<String, HotkeyBinding>,
     config: &TestConfig,
+    now: Instant,
 ) -> Vec<Action> {
     sm.handle_event(
         event,
@@ -80,6 +83,7 @@ fn send_event(
         config.tap_threshold,
         config.double_tap_window,
         config.repaste_debounce,
+        now,
     )
 }
 
@@ -113,18 +117,16 @@ fn test_complete_ptt_hold_session() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
-    // Press key
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let t0 = Instant::now();
+
+    // Press key at t0
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
     assert_eq!(actions, vec![Action::StartRecording]);
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
 
-    // Simulate hold time passing (we can't actually wait, but the state machine
-    // uses Instant::now() internally which will be > tap_threshold by the time
-    // the test runs the next event)
-    std::thread::sleep(Duration::from_millis(250));
-
-    // Release key - should transcribe
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    // Release at t0 + 250ms (> tap_threshold of 200ms) - should transcribe
+    let t1 = t0 + Duration::from_millis(250);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
     assert!(matches!(sm.state(), RecordingState::Idle));
 
@@ -143,20 +145,21 @@ fn test_complete_ptt_tap_to_long_recording_session() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
-    // Quick tap - press
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let t0 = Instant::now();
+
+    // Quick tap - press at t0
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
     assert_eq!(actions, vec![Action::StartRecording]);
 
-    // Quick tap - immediate release (no sleep = < tap_threshold)
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    // Quick release at t0 + 50ms (< tap_threshold of 200ms) - enters long recording
+    let t1 = t0 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     assert_eq!(actions, vec![Action::BindLongRecordingKeys]);
     assert!(matches!(sm.state(), RecordingState::LongRecording { .. }));
 
-    // Wait past double_tap_window
-    std::thread::sleep(Duration::from_millis(1600));
-
-    // Tap again to finish - press
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    // Tap again at t1 + 1600ms (> double_tap_window of 1500ms) to finish
+    let t2 = t1 + Duration::from_millis(1600);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
     assert_eq!(actions, vec![Action::UnbindLongRecordingKeys]);
     assert!(matches!(
         sm.state(),
@@ -164,7 +167,8 @@ fn test_complete_ptt_tap_to_long_recording_session() {
     ));
 
     // Release key - should now transcribe
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
     assert!(matches!(sm.state(), RecordingState::Idle));
 }
@@ -177,8 +181,10 @@ fn test_ptt_session_with_prompt() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Use the 'q' key which has a grammar prompt
-    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t0);
     assert_eq!(actions, vec![Action::StartRecording]);
 
     // Verify state has prompt
@@ -188,9 +194,9 @@ fn test_ptt_session_with_prompt() {
         panic!("Expected Recording state");
     }
 
-    // Hold and release
-    std::thread::sleep(Duration::from_millis(250));
-    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    // Hold and release at t0 + 250ms
+    let t1 = t0 + Duration::from_millis(250);
+    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t1);
     assert_eq!(
         actions,
         vec![Action::StopAndTranscribe {
@@ -211,18 +217,21 @@ fn test_multiple_sessions_update_cache() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Session 1
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     sm.cache_transcription("First transcription".to_string());
 
     assert_eq!(sm.last_transcription(), Some("First transcription"));
 
     // Session 2
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    let t3 = t2 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     sm.cache_transcription("Second transcription".to_string());
 
     // Cache should now have the new transcription
@@ -237,21 +246,26 @@ fn test_double_tap_repaste_uses_cached_transcription() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // First session - do a normal PTT and cache the result
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     sm.cache_transcription("Cached text for repaste".to_string());
 
     // Now do a double-tap
     // First tap - starts recording
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    // Quick release - enters long recording
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    // Quick release - enters long recording (< tap_threshold)
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     assert_eq!(actions, vec![Action::BindLongRecordingKeys]);
 
     // Second tap within double_tap_window - should trigger repaste
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(500); // < 1500ms double_tap_window
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t4);
 
     // Should unbind, cancel, and go to PendingRepaste
     assert_eq!(
@@ -264,7 +278,8 @@ fn test_double_tap_repaste_uses_cached_transcription() {
     ));
 
     // Release key to complete the repaste
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t5 = t4 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
     assert_eq!(
         actions,
         vec![Action::Repaste {
@@ -282,29 +297,37 @@ fn test_repaste_after_multiple_sessions() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Session 1
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     sm.cache_transcription("First text".to_string());
 
     // Session 2
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    let t3 = t2 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     sm.cache_transcription("Second text".to_string());
 
     // Session 3
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t4);
+    let t5 = t4 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
     sm.cache_transcription("Third text".to_string());
 
     // Double-tap to repaste should use "Third text"
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t6 = t5 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t6);
+    let t7 = t6 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t7);
+    let t8 = t7 + Duration::from_millis(500); // < double_tap_window
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t8);
+    let t9 = t8 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t9);
 
     assert_eq!(
         actions,
@@ -326,13 +349,17 @@ fn test_escape_cancels_long_recording() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Enter long recording mode
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     assert!(matches!(sm.state(), RecordingState::LongRecording { .. }));
 
     // Press Escape
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t2);
     assert_eq!(
         actions,
         vec![
@@ -347,7 +374,8 @@ fn test_escape_cancels_long_recording() {
     assert!(matches!(sm.state(), RecordingState::Idle));
 
     // Should be able to start a new session immediately
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t3);
     assert_eq!(actions, vec![Action::StartRecording]);
 }
 
@@ -359,25 +387,34 @@ fn test_escape_does_not_affect_cache() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Do a successful session first
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(250);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     sm.cache_transcription("Preserved text".to_string());
 
     // Start another session and cancel it
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-escape"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    let t3 = t2 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
+    let t4 = t3 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t4);
 
     // Previous transcription should still be cached
     assert_eq!(sm.last_transcription(), Some("Preserved text"));
 
     // Double-tap should repaste the preserved text
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t5 = t4 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t5);
+    let t6 = t5 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t6);
+    let t7 = t6 + Duration::from_millis(500);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t7);
+    let t8 = t7 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t8);
 
     assert_eq!(
         actions,
@@ -395,15 +432,18 @@ fn test_switching_prompts_during_long_recording() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Enter long recording with 'e' (no prompt)
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
 
     // Wait past double_tap_window so it's not treated as double-tap
-    std::thread::sleep(Duration::from_millis(1600));
+    let t2 = t1 + Duration::from_millis(1600);
 
     // Press 'q' (grammar prompt) - should cancel and restart
-    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t2);
     assert_eq!(
         actions,
         vec![
@@ -427,8 +467,8 @@ fn test_switching_prompts_during_long_recording() {
     }
 
     // Complete this session
-    std::thread::sleep(Duration::from_millis(250));
-    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(250);
+    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t3);
     assert_eq!(
         actions,
         vec![Action::StopAndTranscribe {
@@ -450,6 +490,8 @@ fn test_bind_unbind_are_always_paired() {
     let mut sm = StateMachine::new();
     let mut bind_count = 0i32;
 
+    let t0 = Instant::now();
+
     // Helper to track bind/unbind balance
     let track_actions = |actions: &[Action], count: &mut i32| {
         for action in actions {
@@ -462,23 +504,25 @@ fn test_bind_unbind_are_always_paired() {
     };
 
     // Scenario 1: Enter long recording, then finish normally
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
     track_actions(&actions, &mut bind_count);
 
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t1 = t0 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     track_actions(&actions, &mut bind_count);
     assert_eq!(
         bind_count, 1,
         "Should have 1 bind after entering long recording"
     );
 
-    std::thread::sleep(Duration::from_millis(1600));
+    let t2 = t1 + Duration::from_millis(1600);
 
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
     track_actions(&actions, &mut bind_count);
     assert_eq!(bind_count, 0, "Should be balanced after finish press");
 
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     track_actions(&actions, &mut bind_count);
 
     assert_eq!(
@@ -487,14 +531,17 @@ fn test_bind_unbind_are_always_paired() {
     );
 
     // Scenario 2: Enter long recording, then escape
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(100);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t4);
     track_actions(&actions, &mut bind_count);
 
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t5 = t4 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
     track_actions(&actions, &mut bind_count);
     assert_eq!(bind_count, 1);
 
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config);
+    let t6 = t5 + Duration::from_millis(100);
+    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t6);
     track_actions(&actions, &mut bind_count);
     assert_eq!(bind_count, 0, "Escape should unbind");
 }
@@ -507,15 +554,18 @@ fn test_enter_key_maintains_bind_state() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Enter long recording
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
 
     // Wait past double_tap_window
-    std::thread::sleep(Duration::from_millis(1600));
+    let t2 = t1 + Duration::from_millis(1600);
 
     // Press Enter
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
 
     // Should unbind, submit, then rebind (in that order)
     assert_eq!(
@@ -539,15 +589,18 @@ fn test_multiple_enter_presses_in_long_recording() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Enter long recording with grammar prompt
-    send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t1);
 
     // Wait past double_tap_window
-    std::thread::sleep(Duration::from_millis(1600));
+    let t2 = t1 + Duration::from_millis(1600);
 
     // First Enter
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -566,8 +619,8 @@ fn test_multiple_enter_presses_in_long_recording() {
     }
 
     // Wait and do second Enter
-    std::thread::sleep(Duration::from_millis(1600));
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(1600);
+    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t3);
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -586,8 +639,8 @@ fn test_multiple_enter_presses_in_long_recording() {
     }
 
     // Third Enter
-    std::thread::sleep(Duration::from_millis(1600));
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(1600);
+    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t4);
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -605,28 +658,32 @@ fn test_repaste_debounce_prevents_accidental_activation() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Cache a transcription
     sm.cache_transcription("Text to repaste".to_string());
 
     // Do a double-tap repaste
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
+    let t2 = t1 + Duration::from_millis(500);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    let t3 = t2 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
 
-    // Record the repaste
-    sm.record_repaste();
+    // Record the repaste at t3
+    sm.record_repaste(t3);
 
-    // Immediate activation should be debounced
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    // Immediate activation at t3 + 500ms (< 1000ms debounce) should be debounced
+    let t4 = t3 + Duration::from_millis(500);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t4);
     assert!(actions.is_empty(), "Should be debounced");
     assert!(matches!(sm.state(), RecordingState::Idle));
 
-    // Wait past debounce period
-    std::thread::sleep(Duration::from_millis(1100));
-
-    // Now activation should work
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    // Activation at t3 + 1100ms (> 1000ms debounce) should work
+    let t5 = t3 + Duration::from_millis(1100);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t5);
     assert_eq!(actions, vec![Action::StartRecording]);
 }
 
@@ -642,21 +699,26 @@ fn test_unknown_shortcut_during_recording_is_ignored() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Start recording
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
 
     // Unknown shortcut activation - should be ignored
-    let actions = send_event(&mut sm, activate("transcribe-unknown"), &bindings, &config);
+    let t1 = t0 + Duration::from_millis(100);
+    let actions = send_event(&mut sm, activate("transcribe-unknown"), &bindings, &config, t1);
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
 
     // Unknown shortcut deactivation - should be ignored
+    let t2 = t1 + Duration::from_millis(50);
     let actions = send_event(
         &mut sm,
         deactivate("transcribe-unknown"),
         &bindings,
         &config,
+        t2,
     );
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
@@ -670,17 +732,20 @@ fn test_wrong_key_release_is_ignored() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Start recording with 'e'
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(250));
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(250);
 
     // Release 'q' - should be ignored
-    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t1);
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
 
     // Release 'e' - should work
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t2);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
 }
 
@@ -692,27 +757,34 @@ fn test_pending_repaste_ignores_other_events() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Cache a transcription and do double-tap to get to PendingRepaste
     sm.cache_transcription("Pending repaste text".to_string());
 
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
+    let t2 = t1 + Duration::from_millis(500);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
     // Now in PendingRepaste
 
     assert!(matches!(sm.state(), RecordingState::PendingRepaste { .. }));
 
     // Activating another key should be ignored
-    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t3);
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::PendingRepaste { .. }));
 
     // Releasing wrong key should be ignored
-    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t4);
     assert!(actions.is_empty());
 
     // Only releasing the correct key should complete repaste
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t5 = t4 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
     assert_eq!(
         actions,
         vec![Action::Repaste {
@@ -729,11 +801,14 @@ fn test_pending_transcription_ignores_other_events() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Enter long recording and tap to finish
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(1600));
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
+    let t2 = t1 + Duration::from_millis(1600);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
     // Now in PendingTranscription
 
     assert!(matches!(
@@ -742,14 +817,17 @@ fn test_pending_transcription_ignores_other_events() {
     ));
 
     // Other events should be ignored
-    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t3);
     assert!(actions.is_empty());
 
-    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-q"), &bindings, &config, t4);
     assert!(actions.is_empty());
 
     // Only correct key release completes
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t5 = t4 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
 }
 
@@ -761,7 +839,9 @@ fn test_idle_ignores_deactivation() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t0 = Instant::now();
+
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t0);
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::Idle));
 }
@@ -778,20 +858,26 @@ fn test_realistic_session_ptt_then_repaste() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // PTT session
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    std::thread::sleep(Duration::from_millis(300));
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(300);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
 
     // Daemon transcribes and caches
     sm.cache_transcription("hello".to_string());
 
     // User does double-tap to repaste
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t2);
+    let t3 = t2 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
+    let t4 = t3 + Duration::from_millis(500);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t4);
+    let t5 = t4 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t5);
 
     assert_eq!(
         actions,
@@ -809,26 +895,30 @@ fn test_realistic_session_long_recording_with_enter() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Tap to start long recording
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
     assert!(matches!(sm.state(), RecordingState::LongRecording { .. }));
 
     // User speaks for a while...
-    std::thread::sleep(Duration::from_millis(1600));
+    let t2 = t1 + Duration::from_millis(1600);
 
     // Press Enter to submit first part
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
     assert!(actions.contains(&Action::SubmitAndContinue { prompt: None }));
 
     // User speaks some more...
-    std::thread::sleep(Duration::from_millis(1600));
+    let t3 = t2 + Duration::from_millis(1600);
 
     // Tap to finish
-    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
+    let actions = send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t3);
     assert_eq!(actions, vec![Action::UnbindLongRecordingKeys]);
 
-    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    let t4 = t3 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t4);
     assert_eq!(actions, vec![Action::StopAndTranscribe { prompt: None }]);
     assert!(matches!(sm.state(), RecordingState::Idle));
 }
@@ -841,17 +931,22 @@ fn test_realistic_session_mistake_and_cancel() {
     let config = TestConfig::default();
     let mut sm = StateMachine::new();
 
+    let t0 = Instant::now();
+
     // Tap to start
-    send_event(&mut sm, activate("transcribe-e"), &bindings, &config);
-    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config);
+    send_event(&mut sm, activate("transcribe-e"), &bindings, &config, t0);
+    let t1 = t0 + Duration::from_millis(50);
+    send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t1);
 
     // Oops, wrong hotkey! Cancel
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config);
+    let t2 = t1 + Duration::from_millis(100);
+    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t2);
     assert!(actions.contains(&Action::CancelRecording));
     assert!(matches!(sm.state(), RecordingState::Idle));
 
     // Start again with correct prompt
-    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config);
+    let t3 = t2 + Duration::from_millis(50);
+    let actions = send_event(&mut sm, activate("transcribe-q"), &bindings, &config, t3);
     assert_eq!(actions, vec![Action::StartRecording]);
 
     if let RecordingState::Recording { prompt, .. } = sm.state() {
