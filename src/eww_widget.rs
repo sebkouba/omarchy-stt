@@ -39,7 +39,12 @@ pub fn show_recording_widget() {
     debug!("Opening eww recording widget from {:?}", config_path);
 
     match Command::new("eww")
-        .args(["open", "recording", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "open",
+            "recording",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("Recording widget opened"),
@@ -53,7 +58,12 @@ pub fn hide_recording_widget() {
     debug!("Closing eww recording widget");
 
     match Command::new("eww")
-        .args(["close", "recording", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "close",
+            "recording",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("Recording widget closed"),
@@ -72,7 +82,12 @@ pub fn show_loading_widget() {
     }
 
     match Command::new("eww")
-        .args(["open", "loading", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "open",
+            "loading",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("Loading widget opened"),
@@ -89,7 +104,12 @@ pub fn hide_loading_widget() {
     fs::remove_file(PROGRESS_FILE).ok();
 
     match Command::new("eww")
-        .args(["close", "loading", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "close",
+            "loading",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("Loading widget closed"),
@@ -116,7 +136,12 @@ pub fn show_api_widget() {
     }
 
     match Command::new("eww")
-        .args(["open", "api", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "open",
+            "api",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("API widget opened"),
@@ -133,7 +158,12 @@ pub fn hide_api_widget() {
     fs::remove_file(API_PROGRESS_FILE).ok();
 
     match Command::new("eww")
-        .args(["close", "api", "--config", config_path.to_str().unwrap_or(".")])
+        .args([
+            "close",
+            "api",
+            "--config",
+            config_path.to_str().unwrap_or("."),
+        ])
         .spawn()
     {
         Ok(_) => debug!("API widget closed"),

@@ -1,14 +1,14 @@
 use super::state::ConversationState;
 use eframe::egui;
 use log::{debug, warn};
-use notify::{Watcher, RecursiveMode, Event};
+use notify::{Event, RecursiveMode, Watcher};
 use std::error::Error;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::path::PathBuf;
-use std::process::Command;
-use std::fs;
 use std::thread;
 
 const GUI_WINDOW_PID_FILE: &str = "/tmp/transcribe-rs-gui-window.pid";
@@ -53,7 +53,7 @@ pub fn recover_orphaned_conversation() -> Result<(), Box<dyn Error>> {
         if let Err(e) = crate::notifications::notify(
             "💾 Conversation Recovered",
             "Previous conversation saved to file",
-            3000
+            3000,
         ) {
             warn!("Failed to send recovery notification: {}", e);
         }
@@ -62,8 +62,12 @@ pub fn recover_orphaned_conversation() -> Result<(), Box<dyn Error>> {
 }
 
 /// Call the LLM with the user message and conversation context
-fn call_llm(user_message: &str, conversation_history: &[(String, String)], prompt_name: &str) -> Result<String, String> {
-    use crate::{groq, prompts, config::Config};
+fn call_llm(
+    user_message: &str,
+    conversation_history: &[(String, String)],
+    prompt_name: &str,
+) -> Result<String, String> {
+    use crate::{config::Config, groq, prompts};
 
     // Load config
     let config = Config::load().map_err(|e| format!("Failed to load config: {}", e))?;
@@ -92,7 +96,8 @@ fn call_llm(user_message: &str, conversation_history: &[(String, String)], promp
     };
 
     // Call Groq with conversation context
-    let result = client.complete_with_history(&prompt, user_message, conversation_history, None)
+    let result = client
+        .complete_with_history(&prompt, user_message, conversation_history, None)
         .map_err(|e| format!("LLM call failed: {}", e))?;
 
     Ok(result.text)
@@ -107,14 +112,14 @@ struct LlmResponse {
 pub struct ConversationWindow {
     state: Arc<Mutex<ConversationState>>,
     file_watcher_rx: Receiver<Result<Event, notify::Error>>,
-    _watcher: Box<dyn Watcher>,  // Keep watcher alive
+    _watcher: Box<dyn Watcher>, // Keep watcher alive
     should_close: bool,
     // Text input fields
     input_text: String,
     is_submitting: bool,
     llm_response_rx: Option<Receiver<LlmResponse>>,
     llm_response_tx: Sender<LlmResponse>,
-    refocus_in_frames: u8,  // Count down frames until refocus (0 = don't refocus)
+    refocus_in_frames: u8, // Count down frames until refocus (0 = don't refocus)
 }
 
 impl Drop for ConversationWindow {
@@ -162,7 +167,10 @@ impl ConversationWindow {
         // Write PID file to track this window process
         let pid = std::process::id();
         fs::write(GUI_WINDOW_PID_FILE, pid.to_string())?;
-        eprintln!("[GUI-WINDOW] Wrote PID file: {} (PID: {})", GUI_WINDOW_PID_FILE, pid);
+        eprintln!(
+            "[GUI-WINDOW] Wrote PID file: {} (PID: {})",
+            GUI_WINDOW_PID_FILE, pid
+        );
 
         // Set up channel for LLM responses
         let (llm_tx, llm_rx) = channel();
@@ -203,7 +211,10 @@ impl ConversationWindow {
 
         // Spawn thread to call LLM
         thread::spawn(move || {
-            eprintln!("[GUI-WINDOW] LLM thread started with prompt: {}", prompt_name);
+            eprintln!(
+                "[GUI-WINDOW] LLM thread started with prompt: {}",
+                prompt_name
+            );
 
             let result = call_llm(&user_message, &conversation_context, &prompt_name);
 
@@ -270,7 +281,10 @@ impl eframe::App for ConversationWindow {
                     Err(e) => {
                         eprintln!("[GUI-WINDOW] LLM error: {}", e);
                         if let Err(notify_err) = crate::notifications::notify_error(&e) {
-                            eprintln!("[GUI-WINDOW] Failed to send error notification: {}", notify_err);
+                            eprintln!(
+                                "[GUI-WINDOW] Failed to send error notification: {}",
+                                notify_err
+                            );
                         }
                     }
                 }
@@ -428,11 +442,17 @@ impl eframe::App for ConversationWindow {
 
                             // Message content with word wrap - clickable to copy
                             let content_text = msg.content.clone();
-                            let response = ui.horizontal_wrapped(|ui| {
-                                ui.spacing_mut().item_spacing.x = 0.0;
-                                ui.add(egui::Label::new(egui::RichText::new(&msg.content).size(14.0))
-                                    .sense(egui::Sense::click()))
-                            }).inner;
+                            let response = ui
+                                .horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&msg.content).size(14.0),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                })
+                                .inner;
 
                             // Handle click to copy
                             if response.clicked() {
@@ -441,10 +461,14 @@ impl eframe::App for ConversationWindow {
                                 // Copy to clipboard
                                 if let Err(e) = crate::clipboard::copy_to_clipboard(&content_text) {
                                     eprintln!("[GUI-WINDOW] Failed to copy to clipboard: {}", e);
-                                    if let Err(e) = crate::notifications::notify_error(
-                                        &format!("Failed to copy: {}", e)
-                                    ) {
-                                        eprintln!("[GUI-WINDOW] Failed to send error notification: {}", e);
+                                    if let Err(e) = crate::notifications::notify_error(&format!(
+                                        "Failed to copy: {}",
+                                        e
+                                    )) {
+                                        eprintln!(
+                                            "[GUI-WINDOW] Failed to send error notification: {}",
+                                            e
+                                        );
                                     }
                                 } else {
                                     eprintln!("[GUI-WINDOW] Copied to clipboard successfully");
@@ -456,8 +480,13 @@ impl eframe::App for ConversationWindow {
                                         content_text.clone()
                                     };
 
-                                    if let Err(e) = crate::notifications::notify_transcription_copied(&preview) {
-                                        eprintln!("[GUI-WINDOW] Failed to send notification: {}", e);
+                                    if let Err(e) =
+                                        crate::notifications::notify_transcription_copied(&preview)
+                                    {
+                                        eprintln!(
+                                            "[GUI-WINDOW] Failed to send notification: {}",
+                                            e
+                                        );
                                     }
                                 }
 

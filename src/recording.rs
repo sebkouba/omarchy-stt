@@ -221,7 +221,10 @@ pub fn cancel_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
             let response: serde_json::Value = serde_json::from_str(&response_line)?;
             let was_recording = response["was_recording"].as_bool().unwrap_or(false);
 
-            info!("Recording cancelled (daemon was_recording: {})", was_recording);
+            info!(
+                "Recording cancelled (daemon was_recording: {})",
+                was_recording
+            );
             Ok(())
         }
         Err(e) => {

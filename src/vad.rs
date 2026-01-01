@@ -5,8 +5,8 @@
 //! where removing silence improves transcription speed and quality.
 
 use log::{info, warn};
-use silero_vad_rust::silero_vad::utils_vad::{get_speech_timestamps, VadParameters};
 use silero_vad_rust::load_silero_vad;
+use silero_vad_rust::silero_vad::utils_vad::{get_speech_timestamps, VadParameters};
 use std::error::Error;
 
 use crate::config::VadConfig;
@@ -119,7 +119,7 @@ impl VadManager {
             sampling_rate: SAMPLE_RATE,
             min_speech_duration_ms: self.config.min_speech_duration_ms as u32,
             min_silence_duration_ms: self.config.min_silence_duration_ms as u32,
-            speech_pad_ms: 30, // Add small padding around speech
+            speech_pad_ms: 30,     // Add small padding around speech
             return_seconds: false, // Return sample indices
             ..Default::default()
         };

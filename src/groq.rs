@@ -189,12 +189,22 @@ impl GroqClient {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // We're inside an existing runtime - use block_in_place to avoid nested runtime panic
             tokio::task::block_in_place(|| {
-                handle.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
+                handle.block_on(self.complete_async_with_context(
+                    prompt,
+                    transcription,
+                    prompt_name,
+                    ocr_context,
+                ))
             })
         } else {
             // No runtime exists - create a new one
             let runtime = tokio::runtime::Runtime::new()?;
-            runtime.block_on(self.complete_async_with_context(prompt, transcription, prompt_name, ocr_context))
+            runtime.block_on(self.complete_async_with_context(
+                prompt,
+                transcription,
+                prompt_name,
+                ocr_context,
+            ))
         }
     }
 
@@ -208,17 +218,33 @@ impl GroqClient {
     ///
     /// # Returns
     /// CompletionResult with the processed text and whether a tool was called
-    pub fn complete_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
+    pub fn complete_with_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        conversation_history: &[(String, String)],
+        ocr_context: Option<&str>,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
         // Check if we're already in a tokio runtime
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             // We're inside an existing runtime - use block_in_place to avoid nested runtime panic
             tokio::task::block_in_place(|| {
-                handle.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+                handle.block_on(self.complete_async_with_history(
+                    prompt,
+                    transcription,
+                    conversation_history,
+                    ocr_context,
+                ))
             })
         } else {
             // No runtime exists - create a new one
             let runtime = tokio::runtime::Runtime::new()?;
-            runtime.block_on(self.complete_async_with_history(prompt, transcription, conversation_history, ocr_context))
+            runtime.block_on(self.complete_async_with_history(
+                prompt,
+                transcription,
+                conversation_history,
+                ocr_context,
+            ))
         }
     }
 
@@ -230,15 +256,30 @@ impl GroqClient {
         transcription: &str,
         prompt_name: &str,
     ) -> Result<CompletionResult, Box<dyn Error>> {
-        self.complete_async_with_context(prompt, transcription, prompt_name, None).await
+        self.complete_async_with_context(prompt, transcription, prompt_name, None)
+            .await
     }
 
     /// Async version with explicit conversation history (for GUI conversations)
-    async fn complete_async_with_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Result<CompletionResult, Box<dyn Error>> {
+    async fn complete_async_with_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        conversation_history: &[(String, String)],
+        ocr_context: Option<&str>,
+    ) -> Result<CompletionResult, Box<dyn Error>> {
         debug!("Building messages from explicit conversation history");
-        debug!("History contains {} message pairs", conversation_history.len());
+        debug!(
+            "History contains {} message pairs",
+            conversation_history.len()
+        );
 
-        let mut messages = self.build_messages_from_history(prompt, transcription, conversation_history, ocr_context);
+        let mut messages = self.build_messages_from_history(
+            prompt,
+            transcription,
+            conversation_history,
+            ocr_context,
+        );
 
         // Convert ToolConfig to API Tool format
         let tools = if !self.tools.is_empty() {
@@ -258,7 +299,11 @@ impl GroqClient {
                 max_completion_tokens: 4096,
                 top_p: 1.0,
                 tools: tools.clone(),
-                tool_choice: if tools.is_some() { Some("auto".to_string()) } else { None },
+                tool_choice: if tools.is_some() {
+                    Some("auto".to_string())
+                } else {
+                    None
+                },
             };
 
             // Log the request for debugging
@@ -267,7 +312,8 @@ impl GroqClient {
                 debug!("Request JSON:\n{}", request_json);
             }
 
-            let response = self.http_client
+            let response = self
+                .http_client
                 .post(GROQ_API_URL)
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bearer {}", self.api_key))
@@ -278,8 +324,12 @@ impl GroqClient {
             let response_text = response.text().await?;
             debug!("Response text: {}", response_text);
 
-            let api_response: ApiResponse = serde_json::from_str(&response_text)
-                .map_err(|e| format!("Failed to parse response: {} | Response: {}", e, response_text))?;
+            let api_response: ApiResponse = serde_json::from_str(&response_text).map_err(|e| {
+                format!(
+                    "Failed to parse response: {} | Response: {}",
+                    e, response_text
+                )
+            })?;
 
             let choice = api_response
                 .choices
@@ -307,7 +357,10 @@ impl GroqClient {
                         let function_name = &tool_call.function.name;
                         let function_args = &tool_call.function.arguments;
 
-                        debug!("Executing tool: {} with args: {}", function_name, function_args);
+                        debug!(
+                            "Executing tool: {} with args: {}",
+                            function_name, function_args
+                        );
 
                         // Execute the tool
                         let result = self.execute_tool(function_name, function_args).await?;
@@ -328,7 +381,10 @@ impl GroqClient {
                 }
             } else {
                 // Model returned a final response
-                let content = choice.message.content.as_ref()
+                let content = choice
+                    .message
+                    .content
+                    .as_ref()
                     .ok_or("No content in response")?;
 
                 debug!("Model returned final response: {}", content);
@@ -340,7 +396,11 @@ impl GroqClient {
             }
         }
 
-        Err(format!("Reached maximum tool call iterations ({})", MAX_TOOL_ITERATIONS).into())
+        Err(format!(
+            "Reached maximum tool call iterations ({})",
+            MAX_TOOL_ITERATIONS
+        )
+        .into())
     }
 
     /// Async version of complete with OCR context support
@@ -370,7 +430,13 @@ impl GroqClient {
         }
 
         let mut messages = if history_enabled {
-            self.build_messages_with_history(prompt, transcription, prompt_name, &config.llm, ocr_context)?
+            self.build_messages_with_history(
+                prompt,
+                transcription,
+                prompt_name,
+                &config.llm,
+                ocr_context,
+            )?
         } else {
             self.build_messages_without_history(prompt, transcription, ocr_context)
         };
@@ -607,7 +673,12 @@ impl GroqClient {
     }
 
     /// Build messages without conversation history (legacy behavior)
-    fn build_messages_without_history(&self, prompt: &str, transcription: &str, ocr_context: Option<&str>) -> Vec<Message> {
+    fn build_messages_without_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        ocr_context: Option<&str>,
+    ) -> Vec<Message> {
         // Build user content with optional OCR context
         let user_content = if let Some(ocr_text) = ocr_context {
             format!(
@@ -729,16 +800,20 @@ impl GroqClient {
     }
 
     /// Build messages from explicit conversation history (for GUI conversations)
-    fn build_messages_from_history(&self, prompt: &str, transcription: &str, conversation_history: &[(String, String)], ocr_context: Option<&str>) -> Vec<Message> {
-        let mut messages = vec![
-            Message {
-                role: "system".to_string(),
-                content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-            }
-        ];
+    fn build_messages_from_history(
+        &self,
+        prompt: &str,
+        transcription: &str,
+        conversation_history: &[(String, String)],
+        ocr_context: Option<&str>,
+    ) -> Vec<Message> {
+        let mut messages = vec![Message {
+            role: "system".to_string(),
+            content: Some("You are Kimi, an AI assistant created by Moonshot AI.".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+        }];
 
         if conversation_history.is_empty() {
             // First message in conversation - include prompt instructions
@@ -763,7 +838,10 @@ impl GroqClient {
             });
         } else {
             // Continuing conversation - include prompt in first user message, then add history
-            debug!("Building messages from {} existing messages", conversation_history.len());
+            debug!(
+                "Building messages from {} existing messages",
+                conversation_history.len()
+            );
 
             // Process conversation history - first user message gets prompt prefix
             for (idx, (role, content)) in conversation_history.iter().enumerate() {

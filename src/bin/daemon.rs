@@ -116,13 +116,12 @@ fn handle_transcribe_request(
 }
 
 /// Handle a file watcher event - transcribe and save to text file
-fn handle_watch_event(
-    event: WatchEvent,
-    state: &mut DaemonState,
-    watch_dir: &Path,
-) {
+fn handle_watch_event(event: WatchEvent, state: &mut DaemonState, watch_dir: &Path) {
     match event {
-        WatchEvent::FileReady { wav_path, original_path } => {
+        WatchEvent::FileReady {
+            wav_path,
+            original_path,
+        } => {
             eprintln!("📁 Processing watched file: {}", original_path.display());
 
             // Split into chunks if needed (for long audio files)
@@ -175,11 +174,9 @@ fn handle_watch_event(
                         eprintln!("✅ Transcription saved: {}", text_path.display());
 
                         // Move original (and temp WAV if different) to processed
-                        if let Err(e) = file_watcher::move_to_processed(
-                            &original_path,
-                            &wav_path,
-                            watch_dir,
-                        ) {
+                        if let Err(e) =
+                            file_watcher::move_to_processed(&original_path, &wav_path, watch_dir)
+                        {
                             eprintln!("⚠️  Failed to move to processed: {}", e);
                         }
                     }

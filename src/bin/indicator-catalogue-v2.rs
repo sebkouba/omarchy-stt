@@ -34,10 +34,10 @@ impl DictationState {
     fn color(&self) -> Color32 {
         match self {
             DictationState::Idle => Color32::from_rgb(60, 60, 60),
-            DictationState::Recording => Color32::from_rgb(0, 255, 51),     // Matrix Green
+            DictationState::Recording => Color32::from_rgb(0, 255, 51), // Matrix Green
             DictationState::Transcribing => Color32::from_rgb(77, 153, 255), // Matrix Blue
-            DictationState::Enhancing => Color32::from_rgb(255, 204, 51),   // Matrix Yellow
-            DictationState::Error => Color32::from_rgb(255, 77, 77),        // Matrix Red
+            DictationState::Enhancing => Color32::from_rgb(255, 204, 51), // Matrix Yellow
+            DictationState::Error => Color32::from_rgb(255, 77, 77),    // Matrix Red
         }
     }
 
@@ -96,11 +96,17 @@ impl IndicatorCatalogue {
             .show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.heading(title);
-                    ui.label(egui::RichText::new(description).color(Color32::GRAY).small());
+                    ui.label(
+                        egui::RichText::new(description)
+                            .color(Color32::GRAY)
+                            .small(),
+                    );
                     ui.add_space(12.0);
 
-                    let (response, painter) =
-                        ui.allocate_painter(Vec2::new(ui.available_width(), 70.0), egui::Sense::hover());
+                    let (response, painter) = ui.allocate_painter(
+                        Vec2::new(ui.available_width(), 70.0),
+                        egui::Sense::hover(),
+                    );
                     let rect = response.rect;
 
                     painter.rect_filled(rect, Rounding::same(6.0), Color32::from_rgb(10, 10, 12));
@@ -132,8 +138,11 @@ impl eframe::App for IndicatorCatalogue {
                 ] {
                     let color = state.color();
                     let selected = self.state == state;
-                    let text = egui::RichText::new(state.name())
-                        .color(if selected { color } else { Color32::GRAY });
+                    let text = egui::RichText::new(state.name()).color(if selected {
+                        color
+                    } else {
+                        Color32::GRAY
+                    });
                     if ui.selectable_label(selected, text).clicked() {
                         self.state = state;
                     }
@@ -143,13 +152,37 @@ impl eframe::App for IndicatorCatalogue {
             ui.add_space(16.0);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                let indicators: Vec<(&str, &str, fn(&egui::Painter, Rect, f32, f32, DictationState))> = vec![
-                    ("1. Classic Helix", "Standard DNA helix for processing", draw_variant_1),
-                    ("2. Smooth Helix", "Helix with more points, fluid motion", draw_variant_2),
+                let indicators: Vec<(
+                    &str,
+                    &str,
+                    fn(&egui::Painter, Rect, f32, f32, DictationState),
+                )> = vec![
+                    (
+                        "1. Classic Helix",
+                        "Standard DNA helix for processing",
+                        draw_variant_1,
+                    ),
+                    (
+                        "2. Smooth Helix",
+                        "Helix with more points, fluid motion",
+                        draw_variant_2,
+                    ),
                     ("3. Double Helix", "Two intertwined helixes", draw_variant_3),
-                    ("4. Wave Helix", "Helix with amplitude modulation", draw_variant_4),
-                    ("5. Trailing Helix", "Helix with fading trail", draw_variant_5),
-                    ("6. Compact Helix", "Tighter helix, faster rotation", draw_variant_6),
+                    (
+                        "4. Wave Helix",
+                        "Helix with amplitude modulation",
+                        draw_variant_4,
+                    ),
+                    (
+                        "5. Trailing Helix",
+                        "Helix with fading trail",
+                        draw_variant_5,
+                    ),
+                    (
+                        "6. Compact Helix",
+                        "Tighter helix, faster rotation",
+                        draw_variant_6,
+                    ),
                 ];
 
                 for row in indicators.chunks(2) {
@@ -207,7 +240,13 @@ fn draw_tight_matrix(painter: &egui::Painter, rect: Rect, _time: f32, audio: f32
 // Variant 1: Classic Helix
 // ============================================================================
 
-fn draw_variant_1(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_1(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {
@@ -245,7 +284,10 @@ fn draw_helix_classic(painter: &egui::Painter, rect: Rect, time: f32, color: Col
         // Connecting line
         painter.line_segment(
             [Pos2::new(x, y1), Pos2::new(x, y2)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60)),
+            Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 60),
+            ),
         );
 
         painter.circle_filled(Pos2::new(x, y1), dot_radius, color);
@@ -257,7 +299,13 @@ fn draw_helix_classic(painter: &egui::Painter, rect: Rect, time: f32, color: Col
 // Variant 2: Smooth Helix (more points, fluid)
 // ============================================================================
 
-fn draw_variant_2(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_2(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {
@@ -296,11 +344,19 @@ fn draw_helix_smooth(painter: &egui::Painter, rect: Rect, time: f32, color: Colo
         let line_alpha = (((phase.sin().abs()) * 40.0) + 20.0) as u8;
         painter.line_segment(
             [Pos2::new(x, y1), Pos2::new(x, y2)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha)),
+            Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha),
+            ),
         );
 
         let alpha = 180 + (phase.cos() * 75.0) as i32;
-        let dot_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha.clamp(100, 255) as u8);
+        let dot_color = Color32::from_rgba_unmultiplied(
+            color.r(),
+            color.g(),
+            color.b(),
+            alpha.clamp(100, 255) as u8,
+        );
 
         painter.circle_filled(Pos2::new(x, y1), dot_radius, dot_color);
         painter.circle_filled(Pos2::new(x, y2), dot_radius, dot_color);
@@ -311,7 +367,13 @@ fn draw_helix_smooth(painter: &egui::Painter, rect: Rect, time: f32, color: Colo
 // Variant 3: Double Helix (two intertwined)
 // ============================================================================
 
-fn draw_variant_3(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_3(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {
@@ -364,7 +426,13 @@ fn draw_helix_double(painter: &egui::Painter, rect: Rect, time: f32, color: Colo
 // Variant 4: Wave Helix (amplitude modulation)
 // ============================================================================
 
-fn draw_variant_4(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_4(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {
@@ -414,7 +482,10 @@ fn draw_helix_wave(painter: &egui::Painter, rect: Rect, time: f32, color: Color3
         let line_alpha = (amp_mod * 80.0) as u8;
         painter.line_segment(
             [Pos2::new(x, y1), Pos2::new(x, y2)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha)),
+            Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha),
+            ),
         );
     }
 }
@@ -423,7 +494,13 @@ fn draw_helix_wave(painter: &egui::Painter, rect: Rect, time: f32, color: Color3
 // Variant 5: Trailing Helix (fading trail)
 // ============================================================================
 
-fn draw_variant_5(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_5(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {
@@ -462,7 +539,10 @@ fn draw_helix_trailing(painter: &egui::Painter, rect: Rect, time: f32, color: Co
         let y2 = rect.center().y - phase.sin() * amplitude;
 
         // Trail fades based on distance from head
-        let dist_from_head = (t - head_pos).abs().min((t - head_pos + 1.0).abs()).min((t - head_pos - 1.0).abs());
+        let dist_from_head = (t - head_pos)
+            .abs()
+            .min((t - head_pos + 1.0).abs())
+            .min((t - head_pos - 1.0).abs());
         let trail_factor = (1.0 - dist_from_head * 2.5).max(0.2);
 
         let alpha = (220.0 * trail_factor) as u8;
@@ -478,7 +558,13 @@ fn draw_helix_trailing(painter: &egui::Painter, rect: Rect, time: f32, color: Co
 // Variant 6: Compact Helix (tighter, faster)
 // ============================================================================
 
-fn draw_variant_6(painter: &egui::Painter, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_variant_6(
+    painter: &egui::Painter,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let color = state.color();
 
     match state {

@@ -85,7 +85,10 @@ fn log_timing_entry(recording_ms: u64, transcription_ms: u64) -> std::io::Result
         writeln!(file, "{}", entry)?;
     }
 
-    debug!("Logged timing: recording={}ms, transcription={}ms", recording_ms, transcription_ms);
+    debug!(
+        "Logged timing: recording={}ms, transcription={}ms",
+        recording_ms, transcription_ms
+    );
     Ok(())
 }
 
@@ -94,13 +97,11 @@ fn read_timing_entries() -> Vec<String> {
     let path = PathBuf::from(TIMING_LOG_FILE);
 
     match fs::File::open(&path) {
-        Ok(file) => {
-            BufReader::new(file)
-                .lines()
-                .filter_map(|l| l.ok())
-                .filter(|l| !l.is_empty())
-                .collect()
-        }
+        Ok(file) => BufReader::new(file)
+            .lines()
+            .filter_map(|l| l.ok())
+            .filter(|l| !l.is_empty())
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -114,7 +115,10 @@ fn parse_timing_entries() -> Vec<TimingEntry> {
             if parts.len() == 2 {
                 let recording_ms = parts[0].parse().ok()?;
                 let transcription_ms = parts[1].parse().ok()?;
-                Some(TimingEntry { recording_ms, transcription_ms })
+                Some(TimingEntry {
+                    recording_ms,
+                    transcription_ms,
+                })
             } else {
                 None
             }
@@ -152,7 +156,9 @@ pub fn estimate_transcription_time(recording_ms: u64) -> Option<u64> {
 
     debug!(
         "Estimated transcription time: {}ms (ratio={:.3}, entries={})",
-        clamped, ratio, entries.len()
+        clamped,
+        ratio,
+        entries.len()
     );
 
     Some(clamped)
@@ -252,7 +258,10 @@ fn log_api_timing_entry(text_length: u64, api_ms: u64) -> std::io::Result<()> {
         writeln!(file, "{}", entry)?;
     }
 
-    debug!("Logged API timing: text_length={}, api={}ms", text_length, api_ms);
+    debug!(
+        "Logged API timing: text_length={}, api={}ms",
+        text_length, api_ms
+    );
     Ok(())
 }
 
@@ -261,13 +270,11 @@ fn read_api_timing_entries() -> Vec<String> {
     let path = PathBuf::from(API_TIMING_LOG_FILE);
 
     match fs::File::open(&path) {
-        Ok(file) => {
-            BufReader::new(file)
-                .lines()
-                .filter_map(|l| l.ok())
-                .filter(|l| !l.is_empty())
-                .collect()
-        }
+        Ok(file) => BufReader::new(file)
+            .lines()
+            .filter_map(|l| l.ok())
+            .filter(|l| !l.is_empty())
+            .collect(),
         Err(_) => Vec::new(),
     }
 }
@@ -281,7 +288,10 @@ fn parse_api_timing_entries() -> Vec<ApiTimingEntry> {
             if parts.len() == 2 {
                 let text_length = parts[0].parse().ok()?;
                 let api_ms = parts[1].parse().ok()?;
-                Some(ApiTimingEntry { text_length, api_ms })
+                Some(ApiTimingEntry {
+                    text_length,
+                    api_ms,
+                })
             } else {
                 None
             }
@@ -320,7 +330,9 @@ pub fn estimate_api_time(text_length: usize) -> Option<u64> {
 
     debug!(
         "Estimated API time: {}ms (ms_per_char={:.3}, entries={})",
-        clamped, ms_per_char, entries.len()
+        clamped,
+        ms_per_char,
+        entries.len()
     );
 
     Some(clamped)

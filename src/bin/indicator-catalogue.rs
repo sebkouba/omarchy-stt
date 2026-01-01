@@ -37,10 +37,10 @@ impl DictationState {
     fn color(&self) -> Color32 {
         match self {
             DictationState::Idle => Color32::from_rgb(100, 100, 100),
-            DictationState::Recording => Color32::from_rgb(0, 255, 51),    // Matrix Green
+            DictationState::Recording => Color32::from_rgb(0, 255, 51), // Matrix Green
             DictationState::Transcribing => Color32::from_rgb(77, 153, 255), // Matrix Blue
-            DictationState::Enhancing => Color32::from_rgb(255, 204, 51),  // Matrix Yellow
-            DictationState::Error => Color32::from_rgb(255, 77, 77),       // Matrix Red
+            DictationState::Enhancing => Color32::from_rgb(255, 204, 51), // Matrix Yellow
+            DictationState::Error => Color32::from_rgb(255, 77, 77),    // Matrix Red
         }
     }
 
@@ -101,17 +101,29 @@ impl IndicatorCatalogue {
             .show(ui, |ui| {
                 ui.vertical(|ui| {
                     ui.heading(title);
-                    ui.label(egui::RichText::new(description).color(Color32::GRAY).small());
+                    ui.label(
+                        egui::RichText::new(description)
+                            .color(Color32::GRAY)
+                            .small(),
+                    );
                     ui.add_space(8.0);
 
-                    let (response, painter) =
-                        ui.allocate_painter(Vec2::new(ui.available_width(), 60.0), egui::Sense::hover());
+                    let (response, painter) = ui.allocate_painter(
+                        Vec2::new(ui.available_width(), 60.0),
+                        egui::Sense::hover(),
+                    );
                     let rect = response.rect;
 
                     // Draw dark background for indicator
                     painter.rect_filled(rect, Rounding::same(4.0), Color32::from_rgb(15, 15, 18));
 
-                    draw_fn(ui, rect, self.time(), self.simulated_audio_level, self.state);
+                    draw_fn(
+                        ui,
+                        rect,
+                        self.time(),
+                        self.simulated_audio_level,
+                        self.state,
+                    );
                 });
             });
     }
@@ -149,19 +161,59 @@ impl eframe::App for IndicatorCatalogue {
             ui.add_space(16.0);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
-                let indicators: Vec<(&str, &str, fn(&mut egui::Ui, Rect, f32, f32, DictationState))> = vec![
-                    ("1. Dot Matrix (ParaDict2)", "12x5 grid, audio-reactive", draw_dot_matrix),
-                    ("2. Waveform Bars", "Classic equalizer vertical bars", draw_waveform_bars),
-                    ("3. Pulsing Ring", "Circular ring pulses with audio", draw_pulsing_ring),
-                    ("4. Breathing Orb", "Glowing orb with soft glow", draw_breathing_orb),
+                let indicators: Vec<(
+                    &str,
+                    &str,
+                    fn(&mut egui::Ui, Rect, f32, f32, DictationState),
+                )> = vec![
+                    (
+                        "1. Dot Matrix (ParaDict2)",
+                        "12x5 grid, audio-reactive",
+                        draw_dot_matrix,
+                    ),
+                    (
+                        "2. Waveform Bars",
+                        "Classic equalizer vertical bars",
+                        draw_waveform_bars,
+                    ),
+                    (
+                        "3. Pulsing Ring",
+                        "Circular ring pulses with audio",
+                        draw_pulsing_ring,
+                    ),
+                    (
+                        "4. Breathing Orb",
+                        "Glowing orb with soft glow",
+                        draw_breathing_orb,
+                    ),
                     ("5. Sound Wave", "Smooth oscillating wave", draw_sound_wave),
-                    ("6. Ripple Circles", "Concentric circles rippling", draw_ripple_circles),
-                    ("7. Spectrum Dots", "Horizontal dot strip", draw_spectrum_dots),
-                    ("8. Minimal Bar", "Clean horizontal progress", draw_minimal_bar),
+                    (
+                        "6. Ripple Circles",
+                        "Concentric circles rippling",
+                        draw_ripple_circles,
+                    ),
+                    (
+                        "7. Spectrum Dots",
+                        "Horizontal dot strip",
+                        draw_spectrum_dots,
+                    ),
+                    (
+                        "8. Minimal Bar",
+                        "Clean horizontal progress",
+                        draw_minimal_bar,
+                    ),
                     ("9. DNA Helix", "Double helix rotating", draw_dna_helix),
-                    ("10. Particle Burst", "Particles from center", draw_particle_burst),
+                    (
+                        "10. Particle Burst",
+                        "Particles from center",
+                        draw_particle_burst,
+                    ),
                     ("11. Text Pulse", "Minimalist pulsing text", draw_text_pulse),
-                    ("12. Circular Dots", "Dots in rotating circle", draw_circular_dots),
+                    (
+                        "12. Circular Dots",
+                        "Dots in rotating circle",
+                        draw_circular_dots,
+                    ),
                 ];
 
                 for row in indicators.chunks(2) {
@@ -214,8 +266,11 @@ fn draw_dot_matrix(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: 
                     // Progress animation: spreading from center
                     let center_col = COLS as f32 / 2.0;
                     let center_row = ROWS as f32 / 2.0;
-                    let dist = ((col as f32 - center_col).powi(2) + (row as f32 - center_row).powi(2)).sqrt();
-                    let max_dist = ((COLS as f32 / 2.0).powi(2) + (ROWS as f32 / 2.0).powi(2)).sqrt();
+                    let dist = ((col as f32 - center_col).powi(2)
+                        + (row as f32 - center_row).powi(2))
+                    .sqrt();
+                    let max_dist =
+                        ((COLS as f32 / 2.0).powi(2) + (ROWS as f32 / 2.0).powi(2)).sqrt();
                     let progress = ((time * 2.0).sin() * 0.5 + 0.5) * max_dist;
                     dist < progress
                 }
@@ -257,9 +312,7 @@ fn draw_waveform_bars(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, stat
                 let phase = time * 3.0 + i as f32 * 0.3;
                 (phase.sin() * 0.3 + 0.5) * max_height * 0.6
             }
-            DictationState::Error => {
-                max_height * 0.3
-            }
+            DictationState::Error => max_height * 0.3,
             DictationState::Idle => max_height * 0.1,
         };
 
@@ -287,7 +340,8 @@ fn draw_pulsing_ring(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state
                 let pulse = ((time - delay) * 4.0).sin() * 0.5 + 0.5;
                 let radius = base_radius * (0.5 + pulse * 0.5 * audio);
                 let alpha = (200.0 * (1.0 - i as f32 * 0.3)) as u8;
-                let ring_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+                let ring_color =
+                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
                 painter.circle_stroke(center, radius, Stroke::new(3.0 - i as f32, ring_color));
             }
         }
@@ -306,10 +360,18 @@ fn draw_pulsing_ring(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state
         }
         DictationState::Error => {
             let pulse = (time * 6.0).sin() * 0.5 + 0.5;
-            painter.circle_stroke(center, base_radius * (0.7 + pulse * 0.3), Stroke::new(4.0, color));
+            painter.circle_stroke(
+                center,
+                base_radius * (0.7 + pulse * 0.3),
+                Stroke::new(4.0, color),
+            );
         }
         DictationState::Idle => {
-            painter.circle_stroke(center, base_radius * 0.6, Stroke::new(2.0, Color32::from_rgb(60, 60, 60)));
+            painter.circle_stroke(
+                center,
+                base_radius * 0.6,
+                Stroke::new(2.0, Color32::from_rgb(60, 60, 60)),
+            );
         }
     }
 }
@@ -341,7 +403,8 @@ fn draw_breathing_orb(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, stat
     for i in (0..4).rev() {
         let glow_radius = radius + i as f32 * 6.0;
         let glow_alpha = alpha / (i + 1) as u8;
-        let glow_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), glow_alpha);
+        let glow_color =
+            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), glow_alpha);
         painter.circle_filled(center, glow_radius, glow_color);
     }
 }
@@ -376,7 +439,13 @@ fn draw_sound_wave(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: 
     }
 }
 
-fn draw_ripple_circles(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_ripple_circles(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let painter = ui.painter();
     let color = state.color();
     let center = rect.center();
@@ -389,7 +458,8 @@ fn draw_ripple_circles(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, sta
                 let phase = (time * 2.0 + i as f32 * 0.5) % 2.0;
                 let radius = phase * max_radius * (0.5 + audio * 0.5);
                 let alpha = ((1.0 - phase / 2.0) * 200.0) as u8;
-                let ripple_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+                let ripple_color =
+                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
                 painter.circle_stroke(center, radius, Stroke::new(2.0, ripple_color));
             }
         }
@@ -398,7 +468,8 @@ fn draw_ripple_circles(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, sta
                 let phase = (time * 1.5 + i as f32 * 0.7) % 2.0;
                 let radius = phase * max_radius * 0.8;
                 let alpha = ((1.0 - phase / 2.0) * 150.0) as u8;
-                let ripple_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+                let ripple_color =
+                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
                 painter.circle_stroke(center, radius, Stroke::new(1.5, ripple_color));
             }
         }
@@ -408,7 +479,11 @@ fn draw_ripple_circles(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, sta
             painter.circle_stroke(center, max_radius * 0.6 * pulse, Stroke::new(2.0, color));
         }
         DictationState::Idle => {
-            painter.circle_stroke(center, max_radius * 0.3, Stroke::new(1.0, Color32::from_rgb(60, 60, 60)));
+            painter.circle_stroke(
+                center,
+                max_radius * 0.3,
+                Stroke::new(1.0, Color32::from_rgb(60, 60, 60)),
+            );
         }
     }
 }
@@ -469,7 +544,8 @@ fn draw_minimal_bar(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state:
     };
 
     if fill_width > 0.0 {
-        let fill_rect = Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(fill_width, bar_height));
+        let fill_rect =
+            Rect::from_min_size(Pos2::new(bar_x, bar_y), Vec2::new(fill_width, bar_height));
         painter.rect_filled(fill_rect, Rounding::same(3.0), color);
     }
 }
@@ -505,13 +581,22 @@ fn draw_dna_helix(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: D
         if state != DictationState::Idle {
             painter.line_segment(
                 [Pos2::new(x, y1), Pos2::new(x, y2)],
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha / 3)),
+                Stroke::new(
+                    1.0,
+                    Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha / 3),
+                ),
             );
         }
     }
 }
 
-fn draw_particle_burst(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: DictationState) {
+fn draw_particle_burst(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    time: f32,
+    audio: f32,
+    state: DictationState,
+) {
     let painter = ui.painter();
     let color = state.color();
     let center = rect.center();
@@ -526,11 +611,21 @@ fn draw_particle_burst(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, sta
             DictationState::Recording => {
                 let phase = (time * 3.0 + i as f32 * 0.5) % 1.0;
                 let r = max_radius * phase * (0.5 + audio * 0.5);
-                (r, time * 0.5, 3.0 + audio * 2.0, ((1.0 - phase) * 200.0) as u8)
+                (
+                    r,
+                    time * 0.5,
+                    3.0 + audio * 2.0,
+                    ((1.0 - phase) * 200.0) as u8,
+                )
             }
             DictationState::Transcribing | DictationState::Enhancing => {
                 let phase = (time * 2.0 + i as f32 * 0.3) % 1.0;
-                (max_radius * 0.5 + phase * max_radius * 0.3, time * 0.3, 3.0, 150)
+                (
+                    max_radius * 0.5 + phase * max_radius * 0.3,
+                    time * 0.3,
+                    3.0,
+                    150,
+                )
             }
             DictationState::Error => {
                 let pulse = (time * 4.0).sin() * 0.5 + 0.5;
@@ -543,7 +638,8 @@ fn draw_particle_burst(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, sta
         let x = center.x + angle.cos() * radius;
         let y = center.y + angle.sin() * radius;
 
-        let particle_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+        let particle_color =
+            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
         painter.circle_filled(Pos2::new(x, y), size, particle_color);
     }
 
@@ -584,7 +680,11 @@ fn draw_text_pulse(ui: &mut egui::Ui, rect: Rect, time: f32, audio: f32, state: 
     if state == DictationState::Recording {
         let dot_alpha = ((time * 4.0).sin() * 127.0 + 128.0) as u8;
         let dot_color = Color32::from_rgba_unmultiplied(255, 50, 50, dot_alpha);
-        painter.circle_filled(Pos2::new(rect.center().x - 40.0, rect.center().y), 5.0, dot_color);
+        painter.circle_filled(
+            Pos2::new(rect.center().x - 40.0, rect.center().y),
+            5.0,
+            dot_color,
+        );
     }
 
     painter.text(

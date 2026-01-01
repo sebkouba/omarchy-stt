@@ -64,6 +64,7 @@ pub mod file_chat;
 pub mod file_watcher;
 pub mod groq;
 pub mod gui;
+pub mod hotkey_state;
 pub mod logging;
 pub mod notifications;
 pub mod ocr;

@@ -38,10 +38,10 @@ impl State {
     fn color(&self) -> Color32 {
         match self {
             State::Idle => Color32::from_rgb(60, 60, 60),
-            State::Recording => Color32::from_rgb(0, 255, 51),      // Matrix Green
+            State::Recording => Color32::from_rgb(0, 255, 51), // Matrix Green
             State::Transcribing => Color32::from_rgb(77, 153, 255), // Matrix Blue
-            State::Enhancing => Color32::from_rgb(255, 204, 51),    // Matrix Yellow
-            State::Error => Color32::from_rgb(255, 77, 77),         // Matrix Red
+            State::Enhancing => Color32::from_rgb(255, 204, 51), // Matrix Yellow
+            State::Error => Color32::from_rgb(255, 77, 77),    // Matrix Red
         }
     }
 
@@ -95,11 +95,20 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("State:");
-                for state in [State::Idle, State::Recording, State::Transcribing, State::Enhancing, State::Error] {
+                for state in [
+                    State::Idle,
+                    State::Recording,
+                    State::Transcribing,
+                    State::Enhancing,
+                    State::Error,
+                ] {
                     let color = state.color();
                     let selected = self.state == state;
-                    let text = egui::RichText::new(state.name())
-                        .color(if selected { color } else { Color32::GRAY });
+                    let text = egui::RichText::new(state.name()).color(if selected {
+                        color
+                    } else {
+                        Color32::GRAY
+                    });
                     if ui.selectable_label(selected, text).clicked() {
                         self.state = state;
                     }
@@ -110,13 +119,19 @@ impl eframe::App for App {
 
             // Center the indicator at actual size
             ui.vertical_centered(|ui| {
-                let (response, painter) =
-                    ui.allocate_painter(Vec2::new(INDICATOR_WIDTH, INDICATOR_HEIGHT), egui::Sense::hover());
+                let (response, painter) = ui.allocate_painter(
+                    Vec2::new(INDICATOR_WIDTH, INDICATOR_HEIGHT),
+                    egui::Sense::hover(),
+                );
                 let rect = response.rect;
 
                 // Pill/capsule shape - semicircular ends
                 let pill_rounding = rect.height() / 2.0;
-                painter.rect_filled(rect, Rounding::same(pill_rounding), Color32::from_rgb(30, 30, 46));
+                painter.rect_filled(
+                    rect,
+                    Rounding::same(pill_rounding),
+                    Color32::from_rgb(30, 30, 46),
+                );
 
                 let color = self.state.color();
                 let time = self.time();
@@ -139,7 +154,10 @@ impl eframe::App for App {
             });
 
             ui.add_space(20.0);
-            ui.label(format!("Indicator size: {}x{} px", INDICATOR_WIDTH, INDICATOR_HEIGHT));
+            ui.label(format!(
+                "Indicator size: {}x{} px",
+                INDICATOR_WIDTH, INDICATOR_HEIGHT
+            ));
         });
     }
 }
@@ -252,11 +270,19 @@ fn draw_smooth_helix(painter: &egui::Painter, rect: Rect, time: f32, color: Colo
         let line_alpha = (phase.sin().abs() * 40.0 + 20.0) as u8;
         painter.line_segment(
             [Pos2::new(x, y1), Pos2::new(x, y2)],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha)),
+            Stroke::new(
+                1.0,
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), line_alpha),
+            ),
         );
 
         let alpha = 180 + (phase.cos() * 75.0) as i32;
-        let dot_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha.clamp(100, 255) as u8);
+        let dot_color = Color32::from_rgba_unmultiplied(
+            color.r(),
+            color.g(),
+            color.b(),
+            alpha.clamp(100, 255) as u8,
+        );
 
         painter.circle_filled(Pos2::new(x, y1), dot_radius, dot_color);
         painter.circle_filled(Pos2::new(x, y2), dot_radius, dot_color);

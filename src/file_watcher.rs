@@ -40,7 +40,9 @@ struct FileState {
 
 impl FileWatcher {
     /// Create a new file watcher
-    pub fn new(config: WatchConfig) -> Result<(Self, Receiver<WatchEvent>), Box<dyn std::error::Error>> {
+    pub fn new(
+        config: WatchConfig,
+    ) -> Result<(Self, Receiver<WatchEvent>), Box<dyn std::error::Error>> {
         let (event_tx, event_rx) = mpsc::channel();
         let (internal_tx, internal_rx) = mpsc::channel();
 
@@ -80,9 +82,7 @@ impl FileWatcher {
             process_events(internal_rx, event_tx, config);
         });
 
-        let file_watcher = FileWatcher {
-            _watcher: watcher,
-        };
+        let file_watcher = FileWatcher { _watcher: watcher };
 
         Ok((file_watcher, event_rx))
     }
@@ -94,8 +94,10 @@ fn process_events(rx: Receiver<Event>, tx: Sender<WatchEvent>, config: WatchConf
     let debounce_duration = Duration::from_millis(config.debounce_ms);
     let extensions: Vec<String> = config.extensions.iter().map(|e| e.to_lowercase()).collect();
 
-    debug!("[file_watcher] Event processor started, debounce: {}ms, extensions: {:?}",
-          config.debounce_ms, extensions);
+    debug!(
+        "[file_watcher] Event processor started, debounce: {}ms, extensions: {:?}",
+        config.debounce_ms, extensions
+    );
 
     loop {
         // Check for new events with a timeout
@@ -116,12 +118,18 @@ fn process_events(rx: Receiver<Event>, tx: Sender<WatchEvent>, config: WatchConf
                             let is_audio = is_audio_file(&path, &extensions);
                             let in_processed = is_in_processed_dir(&path);
 
-                            debug!("[file_watcher] is_audio={}, in_processed={}", is_audio, in_processed);
+                            debug!(
+                                "[file_watcher] is_audio={}, in_processed={}",
+                                is_audio, in_processed
+                            );
 
                             if is_audio && !in_processed {
                                 let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                                debug!("[file_watcher] Adding to pending: {} (size: {} bytes)",
-                                      path.display(), size);
+                                debug!(
+                                    "[file_watcher] Adding to pending: {} (size: {} bytes)",
+                                    path.display(),
+                                    size
+                                );
                                 pending_files.insert(
                                     path,
                                     FileState {
@@ -159,8 +167,12 @@ fn process_events(rx: Receiver<Event>, tx: Sender<WatchEvent>, config: WatchConf
                         debug!("[file_watcher] File ready (debounced): {}", path.display());
                         Some(path.clone())
                     } else {
-                        debug!("[file_watcher] File size changed, waiting: {} (was {}, now {})",
-                               path.display(), state.last_size, current_size);
+                        debug!(
+                            "[file_watcher] File size changed, waiting: {} (was {}, now {})",
+                            path.display(),
+                            state.last_size,
+                            current_size
+                        );
                         None
                     }
                 } else {
@@ -177,7 +189,10 @@ fn process_events(rx: Receiver<Event>, tx: Sender<WatchEvent>, config: WatchConf
             // Convert to WAV if needed and send event
             match prepare_audio_file(&path, &config) {
                 Ok(wav_path) => {
-                    info!("[file_watcher] File prepared, WAV path: {}", wav_path.display());
+                    info!(
+                        "[file_watcher] File prepared, WAV path: {}",
+                        wav_path.display()
+                    );
                     let _ = tx.send(WatchEvent::FileReady {
                         wav_path,
                         original_path: path,
@@ -233,16 +248,23 @@ fn prepare_audio_file(
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("audio");
     let wav_path = PathBuf::from("/tmp").join(format!("transcribe_watch_{}.wav", stem));
 
-    info!("[file_watcher] Converting {} to {}", path.display(), wav_path.display());
+    info!(
+        "[file_watcher] Converting {} to {}",
+        path.display(),
+        wav_path.display()
+    );
 
     let output = Command::new("ffmpeg")
         .args([
-            "-y",                   // Overwrite output
+            "-y", // Overwrite output
             "-i",
             path.to_str().ok_or("Invalid path")?,
-            "-ar", "16000",         // 16kHz sample rate
-            "-ac", "1",             // Mono
-            "-f", "wav",            // WAV format
+            "-ar",
+            "16000", // 16kHz sample rate
+            "-ac",
+            "1", // Mono
+            "-f",
+            "wav", // WAV format
             wav_path.to_str().ok_or("Invalid output path")?,
         ])
         .output()?;
@@ -261,9 +283,12 @@ fn prepare_audio_file(
 pub fn get_wav_duration(path: &Path) -> Result<f64, Box<dyn std::error::Error>> {
     let output = Command::new("ffprobe")
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
             path.to_str().ok_or("Invalid path")?,
         ])
         .output()?;
@@ -287,23 +312,34 @@ pub fn split_audio_if_needed(wav_path: &Path) -> Result<Vec<PathBuf>, Box<dyn st
         return Ok(vec![wav_path.to_path_buf()]);
     }
 
-    info!("[file_watcher] Audio is {:.1}s, splitting into {}s chunks", duration, MAX_CHUNK_SECONDS);
+    info!(
+        "[file_watcher] Audio is {:.1}s, splitting into {}s chunks",
+        duration, MAX_CHUNK_SECONDS
+    );
 
-    let stem = wav_path.file_stem().and_then(|s| s.to_str()).unwrap_or("audio");
+    let stem = wav_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("audio");
     let mut chunks = Vec::new();
     let mut start_time = 0u32;
     let mut chunk_num = 0;
 
     while (start_time as f64) < duration {
-        let chunk_path = PathBuf::from("/tmp").join(format!("transcribe_chunk_{}_{}.wav", stem, chunk_num));
+        let chunk_path =
+            PathBuf::from("/tmp").join(format!("transcribe_chunk_{}_{}.wav", stem, chunk_num));
 
         let output = Command::new("ffmpeg")
             .args([
                 "-y",
-                "-i", wav_path.to_str().ok_or("Invalid path")?,
-                "-ss", &start_time.to_string(),
-                "-t", &MAX_CHUNK_SECONDS.to_string(),
-                "-c", "copy",
+                "-i",
+                wav_path.to_str().ok_or("Invalid path")?,
+                "-ss",
+                &start_time.to_string(),
+                "-t",
+                &MAX_CHUNK_SECONDS.to_string(),
+                "-c",
+                "copy",
                 chunk_path.to_str().ok_or("Invalid chunk path")?,
             ])
             .output()?;
@@ -329,7 +365,11 @@ pub fn cleanup_chunks(chunks: &[PathBuf], original_wav: &Path) {
         // Don't delete if it's the original file
         if chunk != original_wav {
             if let Err(e) = fs::remove_file(chunk) {
-                debug!("[file_watcher] Failed to cleanup chunk {}: {}", chunk.display(), e);
+                debug!(
+                    "[file_watcher] Failed to cleanup chunk {}: {}",
+                    chunk.display(),
+                    e
+                );
             }
         }
     }
@@ -347,7 +387,11 @@ pub fn move_to_processed(
     // Move original file
     if original_path.exists() {
         let dest = processed_dir.join(original_path.file_name().unwrap_or_default());
-        info!("[file_watcher] Moving {} to {}", original_path.display(), dest.display());
+        info!(
+            "[file_watcher] Moving {} to {}",
+            original_path.display(),
+            dest.display()
+        );
         fs::rename(original_path, dest)?;
     }
 

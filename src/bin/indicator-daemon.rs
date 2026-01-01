@@ -66,10 +66,10 @@ impl State {
     fn color(&self) -> Color32 {
         match self {
             State::Idle => Color32::from_rgb(60, 60, 60),
-            State::Recording => Color32::from_rgb(0, 255, 51),      // Matrix Green
+            State::Recording => Color32::from_rgb(0, 255, 51), // Matrix Green
             State::Transcribing => Color32::from_rgb(77, 153, 255), // Matrix Blue
-            State::Enhancing => Color32::from_rgb(255, 204, 51),    // Matrix Yellow
-            State::Error => Color32::from_rgb(255, 77, 77),         // Matrix Red
+            State::Enhancing => Color32::from_rgb(255, 204, 51), // Matrix Yellow
+            State::Error => Color32::from_rgb(255, 77, 77),    // Matrix Red
         }
     }
 
@@ -135,10 +135,8 @@ impl eframe::App for IndicatorApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::none())
             .show(ctx, |ui| {
-                let rect = Rect::from_min_size(
-                    Pos2::ZERO,
-                    Vec2::new(INDICATOR_WIDTH, INDICATOR_HEIGHT),
-                );
+                let rect =
+                    Rect::from_min_size(Pos2::ZERO, Vec2::new(INDICATOR_WIDTH, INDICATOR_HEIGHT));
 
                 let painter = ui.painter();
 
@@ -277,8 +275,12 @@ fn draw_helix(painter: &egui::Painter, rect: Rect, time: f32, color: Color32) {
         );
 
         let alpha = 180 + (phase.cos() * 75.0) as i32;
-        let dot_color =
-            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha.clamp(100, 255) as u8);
+        let dot_color = Color32::from_rgba_unmultiplied(
+            color.r(),
+            color.g(),
+            color.b(),
+            alpha.clamp(100, 255) as u8,
+        );
 
         painter.circle_filled(Pos2::new(x, y1), dot_radius, dot_color);
         painter.circle_filled(Pos2::new(x, y2), dot_radius, dot_color);

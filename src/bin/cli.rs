@@ -5,8 +5,12 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use transcribe_rs::{
-    clipboard, config::Config, dictation_logger, eww_widget, file_chat,
-    gui::{is_window_running, recover_orphaned_conversation, ConversationState, ConversationWindow},
+    clipboard,
+    config::Config,
+    dictation_logger, eww_widget, file_chat,
+    gui::{
+        is_window_running, recover_orphaned_conversation, ConversationState, ConversationWindow,
+    },
     logging, notifications, ocr, paste, performance_log, recording, timing,
 };
 
@@ -91,7 +95,10 @@ fn handle_gui_window() -> Result<(), Box<dyn Error>> {
         eprintln!("[GUI-WINDOW] Loading conversation state...");
         match ConversationState::load() {
             Ok(s) => {
-                eprintln!("[GUI-WINDOW] Loaded state with {} messages", s.messages.len());
+                eprintln!(
+                    "[GUI-WINDOW] Loaded state with {} messages",
+                    s.messages.len()
+                );
                 s
             }
             Err(e) => {
@@ -127,7 +134,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Start { prompt, ocr, file_chat, gui } => {
+        Commands::Start {
+            prompt,
+            ocr,
+            file_chat,
+            gui,
+        } => {
             let config = Config::load()?;
             handle_start(&config, prompt, ocr, file_chat, gui)
         }
@@ -149,7 +161,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             eprintln!("(Client integration will be added in Phase 3)");
             Ok(())
         }
-        Commands::OcrWorker { screenshot_path, result_path, language, dpi } => {
+        Commands::OcrWorker {
+            screenshot_path,
+            result_path,
+            language,
+            dpi,
+        } => {
             // Internal OCR worker process
             let dpi_value: u32 = dpi.parse().unwrap_or(300);
             ocr::run_ocr_worker(&screenshot_path, &result_path, &language, dpi_value)
@@ -161,7 +178,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn handle_start(config: &Config, prompt: Option<String>, ocr_enabled: bool, file_chat: bool, gui_mode: bool) -> Result<(), Box<dyn Error>> {
+fn handle_start(
+    config: &Config,
+    prompt: Option<String>,
+    ocr_enabled: bool,
+    file_chat: bool,
+    gui_mode: bool,
+) -> Result<(), Box<dyn Error>> {
     info!("=== HANDLE START ===");
 
     // Save prompt name to temp file for stop command
@@ -276,7 +299,10 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
     debug!("Stopping recording...");
     let recording_result = recording::stop_recording(&config.audio)?;
     let audio_file = &recording_result.audio_file;
-    debug!("Audio file: {:?}, duration: {}ms", audio_file, recording_result.duration_ms);
+    debug!(
+        "Audio file: {:?}, duration: {}ms",
+        audio_file, recording_result.duration_ms
+    );
 
     if let Some(ref mut m) = metrics {
         m.mark_recording_stop();
@@ -520,8 +546,8 @@ fn handle_stop(config: &Config) -> Result<(), Box<dyn Error>> {
         } else {
             match file_chat::append_to_chat_file(
                 &config.llm.file_chat_dir,
-                &processed_text,  // User's question
-                &text,            // LLM's response
+                &processed_text, // User's question
+                &text,           // LLM's response
             ) {
                 Ok(_) => {
                     debug!("Successfully wrote to chat file");
@@ -932,8 +958,12 @@ fn process_with_groq(
 }
 
 /// Process a GUI conversation with full context
-fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Option<&str>) -> Result<(), Box<dyn Error>> {
-    use transcribe_rs::{groq, prompts, config::Config};
+fn process_gui_conversation(
+    user_text: &str,
+    prompt_name: &str,
+    ocr_context: Option<&str>,
+) -> Result<(), Box<dyn Error>> {
+    use transcribe_rs::{config::Config, groq, prompts};
 
     debug!("Processing GUI conversation with context");
 
@@ -959,7 +989,10 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
 
     // Get conversation context for LLM
     let conversation_context = state.get_context_for_llm();
-    debug!("Conversation context: {} message pairs", conversation_context.len());
+    debug!(
+        "Conversation context: {} message pairs",
+        conversation_context.len()
+    );
 
     // Load prompt
     debug!("Loading prompt: {}", prompt_name);
@@ -970,7 +1003,10 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
 
     // Look up the tool set for this prompt
     let client = if let Some(tool_set_name) = config.llm.prompt_tool_mapping.get(prompt_name) {
-        debug!("Prompt '{}' mapped to tool set '{}'", prompt_name, tool_set_name);
+        debug!(
+            "Prompt '{}' mapped to tool set '{}'",
+            prompt_name, tool_set_name
+        );
 
         // Look up the tool names for this tool set
         if let Some(tool_names) = config.llm.tool_sets.get(tool_set_name) {
@@ -986,13 +1022,17 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
             groq::GroqClient::from_env_file_no_tools()?
         }
     } else {
-        debug!("Prompt '{}' not in tool mapping, using no tools", prompt_name);
+        debug!(
+            "Prompt '{}' not in tool mapping, using no tools",
+            prompt_name
+        );
         groq::GroqClient::from_env_file_no_tools()?
     };
 
     // Call Groq with conversation context using a special method
     debug!("Calling Groq API with GUI conversation context...");
-    let result = client.complete_with_history(&prompt, user_text, &conversation_context, ocr_context)?;
+    let result =
+        client.complete_with_history(&prompt, user_text, &conversation_context, ocr_context)?;
     debug!("LLM response: '{}'", result.text);
 
     // Add new messages to state
@@ -1021,7 +1061,7 @@ fn process_gui_conversation(user_text: &str, prompt_name: &str, ocr_context: Opt
 
         // Spawn window process (non-blocking)
         Command::new(&current_exe)
-            .arg("gui-window")  // Hidden command
+            .arg("gui-window") // Hidden command
             .spawn()?;
 
         debug!("GUI window process spawned successfully");

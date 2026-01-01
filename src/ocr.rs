@@ -62,10 +62,12 @@ pub fn capture_active_window(config: &OcrConfig) -> Result<String, Box<dyn Error
         .map_err(|e| format!("Failed to parse hyprctl JSON: {}", e))?;
 
     // Extract position and size
-    let at = json.get("at")
+    let at = json
+        .get("at")
         .and_then(|v| v.as_array())
         .ok_or("Missing 'at' field in hyprctl output")?;
-    let size = json.get("size")
+    let size = json
+        .get("size")
         .and_then(|v| v.as_array())
         .ok_or("Missing 'size' field in hyprctl output")?;
 
@@ -106,8 +108,12 @@ pub fn perform_ocr(image_path: &str, config: &OcrConfig) -> Result<String, Box<d
 
     // Initialize Tesseract with specified language
     // First parameter is datapath (None = use default TESSDATA_PREFIX)
-    let mut lt = LepTess::new(None, &config.language)
-        .map_err(|e| format!("Failed to initialize Tesseract: {}. Is tesseract-data-{} installed?", e, config.language))?;
+    let mut lt = LepTess::new(None, &config.language).map_err(|e| {
+        format!(
+            "Failed to initialize Tesseract: {}. Is tesseract-data-{} installed?",
+            e, config.language
+        )
+    })?;
 
     // Set DPI for better accuracy
     lt.set_source_resolution(config.dpi as i32);
@@ -117,11 +123,16 @@ pub fn perform_ocr(image_path: &str, config: &OcrConfig) -> Result<String, Box<d
         .map_err(|e| format!("Failed to load image '{}': {}", image_path, e))?;
 
     // Perform OCR
-    let text = lt.get_utf8_text()
+    let text = lt
+        .get_utf8_text()
         .map_err(|e| format!("OCR failed: {}", e))?;
 
     let duration = start.elapsed();
-    log(&format!("OCR completed in {:?}, extracted {} chars", duration, text.len()));
+    log(&format!(
+        "OCR completed in {:?}, extracted {} chars",
+        duration,
+        text.len()
+    ));
 
     // Clean up the text (remove excessive whitespace)
     let cleaned = text
@@ -187,7 +198,10 @@ pub fn run_ocr_worker(
     language: &str,
     dpi: u32,
 ) -> Result<(), Box<dyn Error>> {
-    log(&format!("OCR worker starting: {} -> {}", screenshot_path, result_path));
+    log(&format!(
+        "OCR worker starting: {} -> {}",
+        screenshot_path, result_path
+    ));
 
     let config = OcrConfig {
         language: language.to_string(),
@@ -206,14 +220,17 @@ pub fn run_ocr_worker(
     };
 
     // Write result to file
-    fs::write(result_path, &result)
-        .map_err(|e| format!("Failed to write OCR result: {}", e))?;
+    fs::write(result_path, &result).map_err(|e| format!("Failed to write OCR result: {}", e))?;
 
     // Remove the running flag
     let flag_path = "/tmp/ptt_ocr_running.flag";
     let _ = fs::remove_file(flag_path);
 
-    log(&format!("OCR worker completed, wrote {} chars to {}", result.len(), result_path));
+    log(&format!(
+        "OCR worker completed, wrote {} chars to {}",
+        result.len(),
+        result_path
+    ));
 
     Ok(())
 }
@@ -221,11 +238,17 @@ pub fn run_ocr_worker(
 /// Wait for OCR result with timeout
 ///
 /// Returns the OCR text if available, or None if timeout or error
-pub fn wait_for_ocr_result(config: &OcrConfig, timeout: Duration) -> Result<Option<String>, Box<dyn Error>> {
+pub fn wait_for_ocr_result(
+    config: &OcrConfig,
+    timeout: Duration,
+) -> Result<Option<String>, Box<dyn Error>> {
     let flag_path = "/tmp/ptt_ocr_running.flag";
     let result_path = &config.result_path;
 
-    log(&format!("Waiting for OCR result (timeout: {:?})...", timeout));
+    log(&format!(
+        "Waiting for OCR result (timeout: {:?})...",
+        timeout
+    ));
     let start = Instant::now();
 
     // Poll for completion
@@ -261,7 +284,10 @@ pub fn wait_for_ocr_result(config: &OcrConfig, timeout: Duration) -> Result<Opti
     if Path::new(result_path).exists() {
         let text = fs::read_to_string(result_path)?;
         if !text.starts_with("OCR_ERROR:") {
-            log(&format!("OCR result found after timeout: {} chars", text.len()));
+            log(&format!(
+                "OCR result found after timeout: {} chars",
+                text.len()
+            ));
             return Ok(Some(text));
         }
     }
