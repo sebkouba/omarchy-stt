@@ -66,6 +66,22 @@ path = "src/bin/recording-daemon.rs"
 name = "hotkey-daemon"
 path = "src/bin/hotkey-daemon.rs"
 
+[[bin]]
+name = "indicator-catalogue"
+path = "src/bin/indicator-catalogue.rs"
+
+[[bin]]
+name = "indicator-catalogue-v2"
+path = "src/bin/indicator-catalogue-v2.rs"
+
+[[bin]]
+name = "indicator-preview"
+path = "src/bin/indicator-preview.rs"
+
+[[bin]]
+name = "indicator-daemon"
+path = "src/bin/indicator-daemon.rs"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["metal"] }
 
