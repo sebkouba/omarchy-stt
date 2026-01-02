@@ -33,6 +33,16 @@ struct DaemonState {
     transcription_engine: ParakeetEngine,
 }
 
+/// State for processing a watched file (allows interleaving with socket requests)
+struct FileProcessingState {
+    wav_path: PathBuf,
+    original_path: PathBuf,
+    chunks: Vec<PathBuf>,
+    current_chunk: usize,
+    full_text: String,
+    success: bool,
+}
+
 impl DaemonState {
     fn new(
         model_path: &Path,
@@ -115,13 +125,8 @@ fn handle_transcribe_request(
     }
 }
 
-/// Handle a file watcher event - transcribe and save to text file
-fn handle_watch_event(
-    event: WatchEvent,
-    state: &mut DaemonState,
-    watch_dir: &Path,
-    output_dir: &Path,
-) {
+/// Start processing a watched file - returns processing state or None on error
+fn start_file_processing(event: WatchEvent) -> Option<FileProcessingState> {
     match event {
         WatchEvent::FileReady {
             wav_path,
@@ -134,74 +139,104 @@ fn handle_watch_event(
                 Ok(chunks) => chunks,
                 Err(e) => {
                     eprintln!("❌ Failed to check/split audio: {}", e);
-                    return;
+                    return None;
                 }
             };
 
-            // Transcribe all chunks and concatenate results
-            let mut full_text = String::new();
-            let mut success = true;
-
-            for (i, chunk_path) in chunks.iter().enumerate() {
-                if chunks.len() > 1 {
-                    eprintln!("🔄 Transcribing chunk {}/{}", i + 1, chunks.len());
-                }
-
-                match state.transcription_engine.transcribe_file(chunk_path, None) {
-                    Ok(result) => {
-                        if !full_text.is_empty() && !result.text.is_empty() {
-                            full_text.push(' ');
-                        }
-                        full_text.push_str(&result.text);
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Transcription failed for chunk {}: {}", i + 1, e);
-                        success = false;
-                        break;
-                    }
-                }
+            if chunks.len() > 1 {
+                eprintln!("📦 Split into {} chunks for processing", chunks.len());
             }
 
-            // Clean up chunk files
-            file_watcher::cleanup_chunks(&chunks, &wav_path);
-
-            if success && !full_text.is_empty() {
-                // Create the output directory if it doesn't exist
-                if let Err(e) = fs::create_dir_all(output_dir) {
-                    eprintln!("❌ Failed to create output directory: {}", e);
-                    return;
-                }
-
-                // Create the text file path (same name as original, .txt extension)
-                let text_filename = original_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("transcription");
-                let text_path = output_dir.join(format!("{}.txt", text_filename));
-
-                // Write transcription to text file
-                match fs::write(&text_path, &full_text) {
-                    Ok(_) => {
-                        eprintln!("✅ Transcription saved: {}", text_path.display());
-
-                        // Move original (and temp WAV if different) to processed
-                        if let Err(e) =
-                            file_watcher::move_to_processed(&original_path, &wav_path, watch_dir)
-                        {
-                            eprintln!("⚠️  Failed to move to processed: {}", e);
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Failed to write transcription: {}", e);
-                    }
-                }
-            } else if full_text.is_empty() {
-                eprintln!("⚠️  No transcription text generated");
-            }
+            Some(FileProcessingState {
+                wav_path,
+                original_path,
+                chunks,
+                current_chunk: 0,
+                full_text: String::new(),
+                success: true,
+            })
         }
         WatchEvent::Error(e) => {
             eprintln!("⚠️  File watcher error: {}", e);
+            None
         }
+    }
+}
+
+/// Process one chunk of a watched file. Returns true if chunk was processed, false if done/failed.
+fn process_one_chunk(proc: &mut FileProcessingState, state: &mut DaemonState) -> bool {
+    if proc.current_chunk >= proc.chunks.len() || !proc.success {
+        return false; // Already done
+    }
+
+    let chunk_path = &proc.chunks[proc.current_chunk];
+    let chunk_num = proc.current_chunk + 1;
+    let total_chunks = proc.chunks.len();
+
+    if total_chunks > 1 {
+        eprintln!("🔄 Transcribing chunk {}/{}", chunk_num, total_chunks);
+    }
+
+    match state.transcription_engine.transcribe_file(chunk_path, None) {
+        Ok(result) => {
+            if !proc.full_text.is_empty() && !result.text.is_empty() {
+                proc.full_text.push(' ');
+            }
+            proc.full_text.push_str(&result.text);
+            proc.current_chunk += 1;
+            true
+        }
+        Err(e) => {
+            eprintln!("❌ Transcription failed for chunk {}: {}", chunk_num, e);
+            proc.success = false;
+            false
+        }
+    }
+}
+
+/// Check if file processing is complete
+fn is_processing_complete(proc: &FileProcessingState) -> bool {
+    proc.current_chunk >= proc.chunks.len() || !proc.success
+}
+
+/// Finish processing a watched file - write output, cleanup, move to processed
+fn finish_file_processing(proc: FileProcessingState, watch_dir: &Path, output_dir: &Path) {
+    // Clean up chunk files
+    file_watcher::cleanup_chunks(&proc.chunks, &proc.wav_path);
+
+    if proc.success && !proc.full_text.is_empty() {
+        // Create the output directory if it doesn't exist
+        if let Err(e) = fs::create_dir_all(output_dir) {
+            eprintln!("❌ Failed to create output directory: {}", e);
+            return;
+        }
+
+        // Create the text file path (same name as original, .txt extension)
+        let text_filename = proc
+            .original_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("transcription");
+        let text_path = output_dir.join(format!("{}.txt", text_filename));
+
+        // Write transcription to text file
+        match fs::write(&text_path, &proc.full_text) {
+            Ok(_) => {
+                eprintln!("✅ Transcription saved: {}", text_path.display());
+
+                // Move original (and temp WAV if different) to processed
+                if let Err(e) =
+                    file_watcher::move_to_processed(&proc.original_path, &proc.wav_path, watch_dir)
+                {
+                    eprintln!("⚠️  Failed to move to processed: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to write transcription: {}", e);
+            }
+        }
+    } else if proc.full_text.is_empty() && proc.success {
+        eprintln!("⚠️  No transcription text generated");
     }
 }
 
@@ -368,9 +403,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set socket to non-blocking for polling
     listener.set_nonblocking(true)?;
 
-    // Main event loop
+    // Track ongoing file processing (for interleaving with socket requests)
+    let mut file_processing: Option<FileProcessingState> = None;
+
+    // Main event loop - socket requests have priority over file processing
     while running.load(Ordering::SeqCst) {
-        // Check for socket connections
+        // 1. PRIORITY: Always check for socket connections first
         match listener.accept() {
             Ok((stream, _)) => {
                 // Set stream back to blocking for the handler
@@ -378,26 +416,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Err(e) = handle_client(stream, &mut state) {
                     eprintln!("⚠️  Error handling client: {}", e);
                 }
+                // After handling socket, loop back to check for more connections
+                continue;
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No pending connections, continue
+                // No pending connections, continue to file processing
             }
             Err(e) => {
                 eprintln!("⚠️  Connection error: {}", e);
             }
         }
 
-        // Check for file watcher events
-        if let (Some(ref rx), Some(ref watch), Some(ref output)) =
-            (&watch_receiver, &watch_dir, &output_dir)
-        {
-            // Non-blocking receive
-            while let Ok(event) = rx.try_recv() {
-                handle_watch_event(event, &mut state, watch, output);
+        // 2. If currently processing a file, do ONE chunk then yield
+        if let Some(ref mut proc) = file_processing {
+            process_one_chunk(proc, &mut state);
+
+            // Check if processing is complete
+            if is_processing_complete(proc) {
+                if let (Some(ref watch), Some(ref output)) = (&watch_dir, &output_dir) {
+                    finish_file_processing(file_processing.take().unwrap(), watch, output);
+                } else {
+                    file_processing = None;
+                }
+            }
+            // After processing one chunk, loop back to check socket
+            continue;
+        }
+
+        // 3. If not processing a file, check for new file watcher events
+        if let Some(ref rx) = watch_receiver {
+            if let Ok(event) = rx.try_recv() {
+                file_processing = start_file_processing(event);
+                // Start processing immediately (will do one chunk next iteration)
+                continue;
             }
         }
 
-        // Small sleep to avoid busy-waiting
+        // 4. Nothing to do - small sleep to avoid busy-waiting
         std::thread::sleep(Duration::from_millis(10));
     }
 
