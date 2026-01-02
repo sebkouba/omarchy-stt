@@ -167,6 +167,9 @@ pub struct WatchConfig {
     pub extensions: Vec<String>,
     /// Debounce duration in milliseconds (wait for file write to complete)
     pub debounce_ms: u64,
+    /// Scan for existing files on startup (default: true)
+    #[serde(default = "default_true")]
+    pub scan_existing: bool,
 }
 
 /// Hotkey daemon configuration
@@ -382,6 +385,7 @@ impl Default for WatchConfig {
                 "webm".to_string(),
             ],
             debounce_ms: 1000, // 1 second debounce
+            scan_existing: true, // Process existing files on startup
         }
     }
 }
@@ -533,6 +537,7 @@ mod tests {
             output_dir: Some("/output".to_string()),
             extensions: vec!["mp3".to_string()],
             debounce_ms: 1000,
+            scan_existing: true,
         };
 
         let toml_str = toml::to_string(&config).expect("Failed to serialize");

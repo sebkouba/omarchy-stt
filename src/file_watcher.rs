@@ -93,11 +93,43 @@ fn process_events(rx: Receiver<Event>, tx: Sender<WatchEvent>, config: WatchConf
     let mut pending_files: HashMap<PathBuf, FileState> = HashMap::new();
     let debounce_duration = Duration::from_millis(config.debounce_ms);
     let extensions: Vec<String> = config.extensions.iter().map(|e| e.to_lowercase()).collect();
+    let watch_dir = PathBuf::from(&config.watch_dir);
 
-    debug!(
+    eprintln!(
         "[file_watcher] Event processor started, debounce: {}ms, extensions: {:?}",
         config.debounce_ms, extensions
     );
+
+    // Scan for existing files on startup if enabled
+    if config.scan_existing {
+        eprintln!("[file_watcher] Scanning for existing files in {}...", watch_dir.display());
+        match fs::read_dir(&watch_dir) {
+            Ok(entries) => {
+                let mut count = 0;
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() && is_audio_file(&path, &extensions) && !is_in_processed_dir(&path) {
+                        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                        if size > 0 {
+                            eprintln!("[file_watcher] Found existing file: {}", path.display());
+                            pending_files.insert(
+                                path,
+                                FileState {
+                                    last_modified: Instant::now(),
+                                    last_size: size,
+                                },
+                            );
+                            count += 1;
+                        }
+                    }
+                }
+                eprintln!("[file_watcher] Found {} existing audio files to process", count);
+            }
+            Err(e) => {
+                eprintln!("[file_watcher] Failed to scan directory: {}", e);
+            }
+        }
+    }
 
     loop {
         // Check for new events with a timeout
