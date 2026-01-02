@@ -116,7 +116,12 @@ fn handle_transcribe_request(
 }
 
 /// Handle a file watcher event - transcribe and save to text file
-fn handle_watch_event(event: WatchEvent, state: &mut DaemonState, watch_dir: &Path) {
+fn handle_watch_event(
+    event: WatchEvent,
+    state: &mut DaemonState,
+    watch_dir: &Path,
+    output_dir: &Path,
+) {
     match event {
         WatchEvent::FileReady {
             wav_path,
@@ -161,12 +166,18 @@ fn handle_watch_event(event: WatchEvent, state: &mut DaemonState, watch_dir: &Pa
             file_watcher::cleanup_chunks(&chunks, &wav_path);
 
             if success && !full_text.is_empty() {
+                // Create the output directory if it doesn't exist
+                if let Err(e) = fs::create_dir_all(output_dir) {
+                    eprintln!("❌ Failed to create output directory: {}", e);
+                    return;
+                }
+
                 // Create the text file path (same name as original, .txt extension)
                 let text_filename = original_path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("transcription");
-                let text_path = watch_dir.join(format!("{}.txt", text_filename));
+                let text_path = output_dir.join(format!("{}.txt", text_filename));
 
                 // Write transcription to text file
                 match fs::write(&text_path, &full_text) {
@@ -313,17 +324,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up file watcher if enabled
     let watch_receiver: Option<Receiver<WatchEvent>>;
     let watch_dir: Option<PathBuf>;
+    let output_dir: Option<PathBuf>;
     let _file_watcher: Option<FileWatcher>;
 
     if config.watch.enabled {
         let watch_path = PathBuf::from(&config.watch.watch_dir);
+        let output_path = config
+            .watch
+            .output_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| watch_path.clone());
         eprintln!("👁️  Watching directory: {}", watch_path.display());
+        if output_path != watch_path {
+            eprintln!("📝 Output directory: {}", output_path.display());
+        }
 
         match FileWatcher::new(config.watch.clone()) {
             Ok((watcher, receiver)) => {
                 _file_watcher = Some(watcher);
                 watch_receiver = Some(receiver);
                 watch_dir = Some(watch_path);
+                output_dir = Some(output_path);
             }
             Err(e) => {
                 eprintln!("⚠️  Failed to start file watcher: {}", e);
@@ -331,12 +353,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _file_watcher = None;
                 watch_receiver = None;
                 watch_dir = None;
+                output_dir = None;
             }
         }
     } else {
         _file_watcher = None;
         watch_receiver = None;
         watch_dir = None;
+        output_dir = None;
     }
 
     eprintln!("Ready to accept transcription requests!");
@@ -364,10 +388,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Check for file watcher events
-        if let (Some(ref rx), Some(ref dir)) = (&watch_receiver, &watch_dir) {
+        if let (Some(ref rx), Some(ref watch), Some(ref output)) =
+            (&watch_receiver, &watch_dir, &output_dir)
+        {
             // Non-blocking receive
             while let Ok(event) = rx.try_recv() {
-                handle_watch_event(event, &mut state, dir);
+                handle_watch_event(event, &mut state, watch, output);
             }
         }
 

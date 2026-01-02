@@ -153,6 +153,9 @@ pub enum Action {
     /// Submit current recording (transcribe + paste + send Enter) and restart recording
     SubmitAndContinue { prompt: Option<String> },
 
+    /// Submit current recording (transcribe + paste + send Enter) and end dictation (return to Idle)
+    SubmitAndEnd { prompt: Option<String> },
+
     /// Show a notification
     Notify { title: String, body: String },
 }
@@ -377,6 +380,22 @@ impl RecordingState {
                         Action::Notify {
                             title: "Recording cancelled".to_string(),
                             body: "Press hotkey to start again".to_string(),
+                        },
+                    ],
+                }
+            }
+
+            // Super key: submit and end (don't restart recording)
+            (
+                RecordingState::LongRecording { prompt, .. },
+                HotkeyEvent::Activated { shortcut_id },
+            ) if shortcut_id == "transcribe-super" => {
+                TransitionResult {
+                    new_state: RecordingState::Idle,
+                    actions: vec![
+                        Action::UnbindLongRecordingKeys,
+                        Action::SubmitAndEnd {
+                            prompt: prompt.clone(),
                         },
                     ],
                 }
@@ -853,6 +872,36 @@ mod tests {
     }
 
     #[test]
+    fn test_super_submits_and_ends() {
+        let bindings = make_binding_map();
+        let ctx = make_ctx(&bindings);
+
+        let state = RecordingState::LongRecording {
+            shortcut_id: "transcribe-e".to_string(),
+            prompt: Some("grammar".to_string()),
+            entered_at: Instant::now() - Duration::from_secs(5),
+        };
+
+        let event = HotkeyEvent::Activated {
+            shortcut_id: "transcribe-super".to_string(),
+        };
+
+        let result = state.transition(event, &ctx, Instant::now());
+
+        // Should return to Idle (not stay in LongRecording like Enter does)
+        assert_eq!(result.new_state, RecordingState::Idle);
+        assert_eq!(
+            result.actions,
+            vec![
+                Action::UnbindLongRecordingKeys,
+                Action::SubmitAndEnd {
+                    prompt: Some("grammar".to_string())
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn test_switch_prompt_during_long_recording() {
         let bindings = make_binding_map();
         let ctx = make_ctx(&bindings);
@@ -1015,7 +1064,7 @@ mod tests {
     /// Control keys that should NEVER appear as the shortcut_id in recording states.
     /// These are temporary bindings used during long recording mode, not actual
     /// transcription hotkeys.
-    const CONTROL_KEYS: &[&str] = &["transcribe-enter", "transcribe-escape"];
+    const CONTROL_KEYS: &[&str] = &["transcribe-enter", "transcribe-escape", "transcribe-super"];
 
     fn is_control_key(id: &str) -> bool {
         CONTROL_KEYS.contains(&id)
@@ -1103,6 +1152,30 @@ mod tests {
     }
 
     #[test]
+    fn test_invariant_super_does_not_pollute_state() {
+        // Property: pressing Super returns to Idle (no state to pollute)
+        let bindings = make_binding_map();
+        let ctx = make_ctx(&bindings);
+
+        let state = RecordingState::LongRecording {
+            shortcut_id: "transcribe-e".to_string(),
+            prompt: None,
+            entered_at: Instant::now(),
+        };
+
+        let result = state.transition(
+            HotkeyEvent::Activated {
+                shortcut_id: "transcribe-super".to_string(),
+            },
+            &ctx,
+            Instant::now(),
+        );
+
+        // Super goes to Idle, but let's still check
+        assert_no_control_key_pollution(&result.new_state);
+    }
+
+    #[test]
     fn test_invariant_no_control_key_in_any_transition_from_long_recording() {
         // Exhaustive test: no transition FROM LongRecording should result in
         // a state with a control key as shortcut_id
@@ -1121,6 +1194,9 @@ mod tests {
             },
             HotkeyEvent::Activated {
                 shortcut_id: "transcribe-escape".to_string(),
+            },
+            HotkeyEvent::Activated {
+                shortcut_id: "transcribe-super".to_string(),
             },
             HotkeyEvent::Activated {
                 shortcut_id: "transcribe-unknown".to_string(),

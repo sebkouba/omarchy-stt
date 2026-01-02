@@ -440,16 +440,56 @@ fn unbind_escape_key() {
     }
 }
 
-/// Bind both Enter and Escape keys for long recording mode
+/// Bind Super key as a global shortcut via hyprctl (for submit and end in long recording)
+fn bind_super_key() {
+    debug!("Binding Super key as global shortcut");
+    match Command::new("hyprctl")
+        .args(["keyword", "bind", ",Super_L,global,:transcribe-super"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            eprintln!("[HYPRCTL] Bound Super key as global shortcut");
+        }
+        Ok(_) => {
+            warn!("hyprctl bind command failed for Super");
+        }
+        Err(e) => {
+            warn!("Failed to execute hyprctl: {}", e);
+        }
+    }
+}
+
+/// Unbind Super key global shortcut via hyprctl
+fn unbind_super_key() {
+    debug!("Unbinding Super key global shortcut");
+    match Command::new("hyprctl")
+        .args(["keyword", "unbind", ",Super_L"])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            eprintln!("[HYPRCTL] Unbound Super key");
+        }
+        Ok(_) => {
+            warn!("hyprctl unbind command failed for Super");
+        }
+        Err(e) => {
+            warn!("Failed to execute hyprctl: {}", e);
+        }
+    }
+}
+
+/// Bind Enter, Escape, and Super keys for long recording mode
 fn bind_long_recording_keys() {
     bind_enter_key();
     bind_escape_key();
+    bind_super_key();
 }
 
-/// Unbind both Enter and Escape keys when exiting long recording mode
+/// Unbind Enter, Escape, and Super keys when exiting long recording mode
 fn unbind_long_recording_keys() {
     unbind_enter_key();
     unbind_escape_key();
+    unbind_super_key();
 }
 
 /// Run progress animation in background
@@ -818,6 +858,21 @@ fn execute_action(action: &Action, config: &Config, state_machine: &mut StateMac
             }
         }
 
+        Action::SubmitAndEnd { prompt } => {
+            eprintln!("[ACTION] SubmitAndEnd (prompt={:?})", prompt);
+            println!(">>> SUPER: Submit and end <<<");
+            match process_transcription_and_send_enter(config, prompt.as_deref()) {
+                Ok(text) => {
+                    state_machine.cache_transcription(text);
+                    eprintln!("[OK] Transcription submitted with Enter, dictation ended");
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Submit failed: {}", e);
+                }
+            }
+            // Do NOT restart recording - return to Idle
+        }
+
         Action::Notify { title, body } => {
             eprintln!("[ACTION] Notify: {} - {}", title, body);
             use transcribe_rs::notifications;
@@ -897,9 +952,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Prepare shortcuts to bind - store descriptions separately to avoid lifetime issues
     let mut shortcut_ids: Vec<String> = binding_map.keys().cloned().collect();
-    // Add transcribe-enter and transcribe-escape for dynamic key binding during long recording
+    // Add transcribe-enter, transcribe-escape, and transcribe-super for dynamic key binding during long recording
     shortcut_ids.push("transcribe-enter".to_string());
     shortcut_ids.push("transcribe-escape".to_string());
+    shortcut_ids.push("transcribe-super".to_string());
 
     let descriptions: Vec<String> = shortcut_ids
         .iter()
@@ -908,6 +964,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "Enter key for submit during long recording".to_string()
             } else if id == "transcribe-escape" {
                 "Escape key for cancel during long recording".to_string()
+            } else if id == "transcribe-super" {
+                "Super key for submit and end during long recording".to_string()
             } else {
                 format!(
                     "Transcribe hotkey for key {}",

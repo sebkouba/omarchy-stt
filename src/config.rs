@@ -160,6 +160,9 @@ pub struct WatchConfig {
     pub enabled: bool,
     /// Directory to watch for new audio files
     pub watch_dir: String,
+    /// Output directory for transcription text files (defaults to watch_dir if not set)
+    #[serde(default)]
+    pub output_dir: Option<String>,
     /// Supported audio file extensions (without dot)
     pub extensions: Vec<String>,
     /// Debounce duration in milliseconds (wait for file write to complete)
@@ -369,6 +372,7 @@ impl Default for WatchConfig {
         WatchConfig {
             enabled: false, // Disabled by default
             watch_dir: config_dir.join("watch").to_string_lossy().to_string(),
+            output_dir: None, // Defaults to watch_dir
             extensions: vec![
                 "wav".to_string(),
                 "m4a".to_string(),
@@ -473,5 +477,69 @@ impl Config {
     pub fn config_path() -> Result<PathBuf, Box<dyn Error>> {
         let config_dir = dirs::config_dir().ok_or("Could not find config directory")?;
         Ok(config_dir.join("transcribe-rs").join("config.toml"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_watch_config_output_dir_default() {
+        let config = WatchConfig::default();
+        assert!(config.output_dir.is_none());
+    }
+
+    #[test]
+    fn test_watch_config_output_dir_from_toml() {
+        let toml_str = r#"
+            enabled = true
+            watch_dir = "/input/audio"
+            output_dir = "/output/transcripts"
+            extensions = ["mp3", "wav"]
+            debounce_ms = 2000
+        "#;
+
+        let config: WatchConfig = toml::from_str(toml_str).expect("Failed to parse TOML");
+
+        assert!(config.enabled);
+        assert_eq!(config.watch_dir, "/input/audio");
+        assert_eq!(config.output_dir, Some("/output/transcripts".to_string()));
+        assert_eq!(config.extensions, vec!["mp3", "wav"]);
+        assert_eq!(config.debounce_ms, 2000);
+    }
+
+    #[test]
+    fn test_watch_config_output_dir_omitted() {
+        let toml_str = r#"
+            enabled = true
+            watch_dir = "/input/audio"
+            extensions = ["mp3"]
+            debounce_ms = 1000
+        "#;
+
+        let config: WatchConfig = toml::from_str(toml_str).expect("Failed to parse TOML");
+
+        assert!(config.enabled);
+        assert_eq!(config.watch_dir, "/input/audio");
+        assert!(config.output_dir.is_none());
+    }
+
+    #[test]
+    fn test_watch_config_output_dir_serialization() {
+        let config = WatchConfig {
+            enabled: true,
+            watch_dir: "/input".to_string(),
+            output_dir: Some("/output".to_string()),
+            extensions: vec!["mp3".to_string()],
+            debounce_ms: 1000,
+        };
+
+        let toml_str = toml::to_string(&config).expect("Failed to serialize");
+        assert!(toml_str.contains("output_dir = \"/output\""));
+
+        // Deserialize back
+        let parsed: WatchConfig = toml::from_str(&toml_str).expect("Failed to parse");
+        assert_eq!(parsed.output_dir, Some("/output".to_string()));
     }
 }
