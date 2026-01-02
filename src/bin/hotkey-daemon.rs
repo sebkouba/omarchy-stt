@@ -28,6 +28,7 @@ use tokio::sync::mpsc;
 use transcribe_rs::{
     clipboard,
     config::Config,
+    dictation_logger,
     eww_widget,
     hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine},
     recording,
@@ -636,6 +637,7 @@ fn process_transcription(
     info!("Transcription: {}", transcription);
 
     let corrected = apply_corrections(&transcription, config);
+    let pre_llm_text = corrected.clone(); // Save for logging comparison
 
     let llm_result = match process_with_llm(&corrected, prompt_name, config) {
         Ok(result) => result,
@@ -661,6 +663,45 @@ fn process_transcription(
     }
 
     copy_and_paste(&llm_result.text, config)?;
+
+    // Log dictation if enabled
+    if config.dictation_logging.enabled {
+        let duration_secs = recording_ms_for_timing as f64 / 1000.0;
+        let llm_triggered = prompt_name.is_some();
+
+        if llm_triggered && config.dictation_logging.llm_log_enabled {
+            // Only log if LLM actually changed the text
+            if pre_llm_text.trim() != llm_result.text.trim() {
+                let diff = dictation_logger::generate_diff(&pre_llm_text, &llm_result.text);
+                debug!("LLM diff: {}", diff);
+
+                if let Err(e) = dictation_logger::log_llm_correction(
+                    &pre_llm_text,
+                    &llm_result.text,
+                    &diff,
+                    duration_secs,
+                    &config.dictation_logging.llm_log_path,
+                ) {
+                    warn!("Failed to log LLM correction: {}", e);
+                } else {
+                    debug!("Logged to LLM corrections log");
+                }
+            } else {
+                debug!("LLM processing triggered but no actual changes made (skipped logging)");
+            }
+        } else if !llm_triggered && config.dictation_logging.basic_log_enabled {
+            // Log to basic dictation log
+            if let Err(e) = dictation_logger::log_basic_dictation(
+                &llm_result.text,
+                duration_secs,
+                &config.dictation_logging.basic_log_path,
+            ) {
+                warn!("Failed to log basic dictation: {}", e);
+            } else {
+                debug!("Logged to basic dictation log");
+            }
+        }
+    }
 
     info!("Transcription complete: {}", llm_result.text);
     Ok(llm_result.text)
