@@ -82,6 +82,14 @@ path = "src/bin/indicator-preview.rs"
 name = "indicator-daemon"
 path = "src/bin/indicator-daemon.rs"
 
+[[bin]]
+name = "transcribe-batch"
+path = "src/bin/transcribe-batch.rs"
+
+[[bin]]
+name = "watch-daemon"
+path = "src/bin/watch-daemon.rs"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["metal"] }
 
