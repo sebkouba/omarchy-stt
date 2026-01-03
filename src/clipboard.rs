@@ -220,7 +220,12 @@ pub fn copy_paste_workflow(
     text: &str,
     options: &PasteWorkflowOptions,
 ) -> Result<PasteWorkflowResult, Box<dyn Error>> {
+    use std::time::Instant;
+
+    let workflow_start = Instant::now();
+
     // Step 1: Save original clipboard if preservation is enabled
+    let save_start = Instant::now();
     let saved_clipboard = if options.preserve_clipboard {
         debug!("Saving original clipboard content...");
         let saved = SavedClipboard::save();
@@ -229,6 +234,7 @@ pub fn copy_paste_workflow(
     } else {
         None
     };
+    let save_ms = save_start.elapsed().as_millis();
 
     // Step 2: Optionally add trailing space after punctuation
     let text = if options.add_trailing_space {
@@ -238,8 +244,10 @@ pub fn copy_paste_workflow(
     };
 
     // Step 3: Copy to clipboard
+    let copy_start = Instant::now();
     debug!("Copying to clipboard...");
     copy_to_clipboard(&text)?;
+    let copy_ms = copy_start.elapsed().as_millis();
     debug!("Clipboard copy successful");
 
     // Step 4: Optionally paste
@@ -249,12 +257,18 @@ pub fn copy_paste_workflow(
         clipboard_restored: None,
     };
 
+    let mut paste_ms = 0u128;
+    let mut delay_ms = 0u128;
+    let mut restore_ms = 0u128;
+
     if options.auto_paste {
         result.paste_attempted = true;
         debug!("Attempting auto-paste...");
 
+        let paste_start = Instant::now();
         match paste::paste_from_clipboard() {
             Ok(_) => {
+                paste_ms = paste_start.elapsed().as_millis();
                 debug!("Paste successful");
                 result.paste_succeeded = Some(true);
 
@@ -268,16 +282,21 @@ pub fn copy_paste_workflow(
                             "Waiting {}ms for paste to complete before restoring clipboard...",
                             options.restore_delay_ms
                         );
+                        let delay_start = Instant::now();
                         std::thread::sleep(Duration::from_millis(options.restore_delay_ms));
+                        delay_ms = delay_start.elapsed().as_millis();
                     }
 
                     debug!("Restoring original clipboard content...");
+                    let restore_start = Instant::now();
                     match saved.restore() {
                         Ok(_) => {
+                            restore_ms = restore_start.elapsed().as_millis();
                             debug!("Clipboard restored successfully");
                             result.clipboard_restored = Some(true);
                         }
                         Err(e) => {
+                            restore_ms = restore_start.elapsed().as_millis();
                             warn!("Failed to restore clipboard: {}", e);
                             result.clipboard_restored = Some(false);
                         }
@@ -285,6 +304,7 @@ pub fn copy_paste_workflow(
                 }
             }
             Err(e) => {
+                paste_ms = paste_start.elapsed().as_millis();
                 warn!("Paste failed: {}", e);
                 result.paste_succeeded = Some(false);
                 // Don't restore clipboard if paste failed - user may want to manually paste
@@ -294,6 +314,12 @@ pub fn copy_paste_workflow(
         debug!("Auto-paste disabled, clipboard only");
         // Don't restore clipboard when auto-paste disabled - user needs clipboard content
     }
+
+    let total_ms = workflow_start.elapsed().as_millis();
+    debug!(
+        "Clipboard workflow timing: save={}ms, copy={}ms, paste={}ms, delay={}ms, restore={}ms, total={}ms",
+        save_ms, copy_ms, paste_ms, delay_ms, restore_ms, total_ms
+    );
 
     Ok(result)
 }
