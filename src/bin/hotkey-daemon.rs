@@ -32,6 +32,7 @@ use transcribe_rs::{
     eww_widget,
     hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine},
     recording,
+    timing::TimingBreakdown,
     transcription_corrections::TranscriptionCorrector,
     transcription_timing,
 };
@@ -624,9 +625,8 @@ fn process_transcription(
 
     let transcription = transcribe_file(audio_file)?;
 
-    if let Some(actual_ms) = timer.stop_and_log() {
-        debug!("Actual transcription time: {}ms", actual_ms);
-    }
+    let transcription_ms = timer.stop_and_log().unwrap_or(0);
+    debug!("Actual transcription time: {}ms", transcription_ms);
 
     stop_animation.store(true, Ordering::Relaxed);
 
@@ -635,6 +635,9 @@ fn process_transcription(
     }
 
     info!("Transcription: {}", transcription);
+
+    // 6. Time processing (corrections + LLM)
+    let processing_start = Instant::now();
 
     let corrected = apply_corrections(&transcription, config);
     let pre_llm_text = corrected.clone(); // Save for logging comparison
@@ -650,6 +653,8 @@ fn process_transcription(
         }
     };
 
+    let processing_ms = processing_start.elapsed().as_millis() as u64;
+
     if llm_result.tool_called {
         info!("Tool was executed, skipping clipboard/paste");
         use transcribe_rs::notifications;
@@ -662,12 +667,42 @@ fn process_transcription(
         return Ok(llm_result.text);
     }
 
+    // 7. Time paste operation
+    let paste_start = Instant::now();
     copy_and_paste(&llm_result.text, config)?;
+    let paste_ms = paste_start.elapsed().as_millis() as u64;
 
     // Log dictation if enabled
     if config.dictation_logging.enabled {
         let duration_secs = recording_ms_for_timing as f64 / 1000.0;
         let llm_triggered = prompt_name.is_some();
+
+        // Always log timing breakdown when basic logging is enabled
+        if config.dictation_logging.basic_log_enabled {
+            let breakdown = TimingBreakdown::new(
+                recording_ms_for_timing,
+                transcription_ms,
+                processing_ms,
+                paste_ms,
+            );
+            debug!(
+                "Timing: recording={}ms, transcription={}ms, processing={}ms, paste={}ms, total={}ms",
+                breakdown.recording_ms,
+                breakdown.transcription_ms,
+                breakdown.processing_ms,
+                breakdown.paste_ms,
+                breakdown.total_ms()
+            );
+            if let Err(e) = dictation_logger::log_dictation_with_timing(
+                &llm_result.text,
+                &breakdown,
+                &config.dictation_logging.basic_log_path,
+            ) {
+                warn!("Failed to log timed dictation: {}", e);
+            } else {
+                debug!("Logged to timed dictation log");
+            }
+        }
 
         if llm_triggered && config.dictation_logging.llm_log_enabled {
             // Only log if LLM actually changed the text
@@ -690,7 +725,7 @@ fn process_transcription(
                 debug!("LLM processing triggered but no actual changes made (skipped logging)");
             }
         } else if !llm_triggered && config.dictation_logging.basic_log_enabled {
-            // Log to basic dictation log
+            // Log to basic dictation log (old format for backwards compatibility)
             if let Err(e) = dictation_logger::log_basic_dictation(
                 &llm_result.text,
                 duration_secs,

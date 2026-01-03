@@ -1,5 +1,6 @@
 //! Dictation logging utilities for tracking transcriptions and LLM corrections
 
+use crate::timing::TimingBreakdown;
 use chrono::Local;
 use similar::{ChangeTag, TextDiff};
 use std::error::Error;
@@ -89,6 +90,60 @@ pub fn log_basic_dictation(
         file,
         "{},{},{:.3}",
         timestamp, escaped_text, duration_seconds
+    )?;
+
+    Ok(())
+}
+
+/// Log a dictation with detailed timing breakdown
+///
+/// # Arguments
+/// * `text` - The transcribed text
+/// * `breakdown` - Timing breakdown for each stage
+/// * `log_path` - Path to the CSV log file (will use _timed suffix)
+///
+/// # Format
+/// CSV columns: timestamp,text,recording_ms,transcription_ms,processing_ms,paste_ms,total_ms
+pub fn log_dictation_with_timing(
+    text: &str,
+    breakdown: &TimingBreakdown,
+    log_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    // Use a separate file with _timed suffix to not conflict with old format
+    let timed_path = log_path.replace(".csv", "_timed.csv");
+    let path = Path::new(&timed_path);
+
+    // Create parent directory if it doesn't exist
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Check if file exists to determine if we need to write headers
+    let needs_header = !path.exists();
+
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+
+    // Write header if this is a new file
+    if needs_header {
+        writeln!(
+            file,
+            "timestamp,text,recording_ms,transcription_ms,processing_ms,paste_ms,total_ms"
+        )?;
+    }
+
+    // Write the log entry
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
+    let escaped_text = csv_escape(text);
+    writeln!(
+        file,
+        "{},{},{},{},{},{},{}",
+        timestamp,
+        escaped_text,
+        breakdown.recording_ms,
+        breakdown.transcription_ms,
+        breakdown.processing_ms,
+        breakdown.paste_ms,
+        breakdown.total_ms()
     )?;
 
     Ok(())

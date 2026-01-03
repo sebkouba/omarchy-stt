@@ -152,6 +152,41 @@ impl PerformanceMetrics {
     }
 }
 
+/// Breakdown of timing for each stage of the dictation workflow
+#[derive(Debug, Clone)]
+pub struct TimingBreakdown {
+    /// How long the audio recording was (ms)
+    pub recording_ms: u64,
+    /// Time to transcribe via daemon (ms)
+    pub transcription_ms: u64,
+    /// Time for corrections + LLM processing (ms)
+    pub processing_ms: u64,
+    /// Time for clipboard + paste (ms)
+    pub paste_ms: u64,
+}
+
+impl TimingBreakdown {
+    /// Create a new timing breakdown
+    pub fn new(recording_ms: u64, transcription_ms: u64, processing_ms: u64, paste_ms: u64) -> Self {
+        Self {
+            recording_ms,
+            transcription_ms,
+            processing_ms,
+            paste_ms,
+        }
+    }
+
+    /// Total end-to-end time (excludes recording since that's user-controlled)
+    pub fn processing_total_ms(&self) -> u64 {
+        self.transcription_ms + self.processing_ms + self.paste_ms
+    }
+
+    /// Total time including recording
+    pub fn total_ms(&self) -> u64 {
+        self.recording_ms + self.processing_total_ms()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
