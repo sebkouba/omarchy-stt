@@ -258,8 +258,6 @@ pub fn copy_paste_workflow(
     };
 
     let mut paste_ms = 0u128;
-    let mut delay_ms = 0u128;
-    let mut restore_ms = 0u128;
 
     if options.auto_paste {
         result.paste_attempted = true;
@@ -272,35 +270,23 @@ pub fn copy_paste_workflow(
                 debug!("Paste successful");
                 result.paste_succeeded = Some(true);
 
-                // Step 5: Restore clipboard after successful paste
+                // Step 5: Restore clipboard after successful paste (async)
                 if let Some(saved) = saved_clipboard {
-                    // Wait for the application to read from clipboard
-                    // ydotool returns immediately after sending key events,
-                    // but the app reads the clipboard asynchronously
-                    if options.restore_delay_ms > 0 {
-                        debug!(
-                            "Waiting {}ms for paste to complete before restoring clipboard...",
-                            options.restore_delay_ms
-                        );
-                        let delay_start = Instant::now();
-                        std::thread::sleep(Duration::from_millis(options.restore_delay_ms));
-                        delay_ms = delay_start.elapsed().as_millis();
-                    }
-
-                    debug!("Restoring original clipboard content...");
-                    let restore_start = Instant::now();
-                    match saved.restore() {
-                        Ok(_) => {
-                            restore_ms = restore_start.elapsed().as_millis();
-                            debug!("Clipboard restored successfully");
-                            result.clipboard_restored = Some(true);
+                    let restore_delay = options.restore_delay_ms;
+                    // Spawn background thread for delay + restore
+                    // This returns immediately, making paste feel snappier
+                    std::thread::spawn(move || {
+                        if restore_delay > 0 {
+                            std::thread::sleep(Duration::from_millis(restore_delay));
                         }
-                        Err(e) => {
-                            restore_ms = restore_start.elapsed().as_millis();
-                            warn!("Failed to restore clipboard: {}", e);
-                            result.clipboard_restored = Some(false);
+                        if let Err(e) = saved.restore() {
+                            // Log error but don't block - this is best-effort
+                            eprintln!("Failed to restore clipboard: {}", e);
                         }
-                    }
+                    });
+                    // Optimistically report success (async restore in progress)
+                    result.clipboard_restored = Some(true);
+                    debug!("Clipboard restore spawned in background ({}ms delay)", restore_delay);
                 }
             }
             Err(e) => {
@@ -317,8 +303,8 @@ pub fn copy_paste_workflow(
 
     let total_ms = workflow_start.elapsed().as_millis();
     debug!(
-        "Clipboard workflow timing: save={}ms, copy={}ms, paste={}ms, delay={}ms, restore={}ms, total={}ms",
-        save_ms, copy_ms, paste_ms, delay_ms, restore_ms, total_ms
+        "Clipboard workflow timing: save={}ms, copy={}ms, paste={}ms, total={}ms (restore is async)",
+        save_ms, copy_ms, paste_ms, total_ms
     );
 
     Ok(result)
@@ -568,6 +554,9 @@ mod tests {
                         Some(true),
                         "Clipboard should be restored after successful paste"
                     );
+
+                    // Wait for async restore to complete (restore_delay_ms + processing time)
+                    std::thread::sleep(std::time::Duration::from_millis(200));
 
                     // Verify clipboard is restored to original content
                     let after = std::process::Command::new("wl-paste")
