@@ -46,9 +46,10 @@ silero-vad-rust = "6.2"
 default = ["ocr"]
 ocr = ["leptess"]
 
-[[bin]]
-name = "transcribe"
-path = "src/bin/cli.rs"
+# Archived - using hotkey-daemon instead (file moved to archive/cli.rs)
+# [[bin]]
+# name = "transcribe"
+# path = "src/bin/cli.rs"
 
 [[bin]]
 name = "transcribe-daemon"
