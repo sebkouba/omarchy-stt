@@ -341,7 +341,7 @@ fn copy_and_paste(text: &str, config: &Config) -> Result<(), Box<dyn Error>> {
         add_trailing_space: config.integration.add_space_after_punctuation,
         auto_paste: config.integration.auto_paste,
         preserve_clipboard: config.integration.prevent_clipboard_pollution,
-        restore_delay_ms: 50,
+        restore_delay_ms: 100,
     };
 
     clipboard::copy_paste_workflow(text, &options)?;
