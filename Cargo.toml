@@ -45,6 +45,7 @@ glob = "0.3"
 futures = "0.3"
 zbus = "5"
 silero-vad-rust = "6.2"
+dialoguer = "0.12"
 
 [features]
 default = ["ocr"]
