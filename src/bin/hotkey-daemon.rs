@@ -28,8 +28,7 @@ use tokio::sync::mpsc;
 use transcribe_rs::{
     clipboard,
     config::Config,
-    dictation_logger,
-    eww_widget,
+    dictation_logger, eww_widget,
     hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine},
     recording,
     timing::TimingBreakdown,

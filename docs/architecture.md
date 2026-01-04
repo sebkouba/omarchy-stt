@@ -538,8 +538,8 @@ corrections_file = "transcription_corrections.txt"
 3. **Configure Hyprland keybinding:**
    ```ini
    # ~/.config/hypr/hyprland.conf
-   bind = SUPER SHIFT CTRL ALT, E, exec, /home/seb/code/cloned/transcribe-rs-v2/target/release/transcribe start
-   bindr = SUPER SHIFT CTRL ALT, E, exec, /home/seb/code/cloned/transcribe-rs-v2/target/release/transcribe stop
+   bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe start
+   bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe stop
    ```
 
 4. **Initialize configuration:**

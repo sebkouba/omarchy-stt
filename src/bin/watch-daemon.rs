@@ -54,7 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .as_ref()
         .map(PathBuf::from)
         .unwrap_or_else(|| watch_dir.clone());
-    let extensions: Vec<String> = config.watch.extensions.iter().map(|e| e.to_lowercase()).collect();
+    let extensions: Vec<String> = config
+        .watch
+        .extensions
+        .iter()
+        .map(|e| e.to_lowercase())
+        .collect();
     let debounce_duration = Duration::from_millis(config.watch.debounce_ms);
     let scan_existing = config.watch.scan_existing;
 
@@ -192,7 +197,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for active jobs to finish (with timeout)
     if !active_jobs.is_empty() {
-        eprintln!("watch-daemon: Waiting for {} active jobs...", active_jobs.len());
+        eprintln!(
+            "watch-daemon: Waiting for {} active jobs...",
+            active_jobs.len()
+        );
         for mut job in active_jobs {
             let _ = job.child.wait();
         }

@@ -12,7 +12,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-const DAEMON_SOCKET: &str = "/tmp/transcribe-rs-v2-recording.sock";
+const DEFAULT_SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
+
+/// Get the recording daemon socket path from environment or use default
+fn get_socket_path() -> String {
+    std::env::var("RECORDING_SOCKET_PATH").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string())
+}
 
 /// Result of stopping a recording, includes audio file and timing info
 #[derive(Debug, Clone)]
@@ -41,8 +46,9 @@ pub fn start_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     }
 
     // Connect to daemon
-    debug!("Connecting to daemon at {}", DAEMON_SOCKET);
-    let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
+    let socket_path = get_socket_path();
+    debug!("Connecting to daemon at {}", socket_path);
+    let mut stream = UnixStream::connect(&socket_path).map_err(|e| {
         error!("Failed to connect to recording daemon: {}", e);
         format!(
             "Failed to connect to recording daemon.\n\n\
@@ -101,8 +107,9 @@ pub fn stop_recording(config: &AudioConfig) -> Result<RecordingResult, Box<dyn E
     debug!("Stopping recording from index: {}", start_index);
 
     // Connect to daemon
-    debug!("Connecting to daemon at {}", DAEMON_SOCKET);
-    let mut stream = UnixStream::connect(DAEMON_SOCKET).map_err(|e| {
+    let socket_path = get_socket_path();
+    debug!("Connecting to daemon at {}", socket_path);
+    let mut stream = UnixStream::connect(&socket_path).map_err(|e| {
         error!("Failed to connect to recording daemon: {}", e);
         // Clean up state file
         fs::remove_file(&config.recording_pid_file).ok();
@@ -205,7 +212,8 @@ pub fn cancel_recording(config: &AudioConfig) -> Result<(), Box<dyn Error>> {
     }
 
     // Connect to daemon and send cancel command
-    match UnixStream::connect(DAEMON_SOCKET) {
+    let socket_path = get_socket_path();
+    match UnixStream::connect(&socket_path) {
         Ok(mut stream) => {
             let request = serde_json::json!({"command": "cancel"});
             writeln!(stream, "{}", request)?;
@@ -254,16 +262,18 @@ mod tests {
     #[ignore] // Requires daemon running
     fn test_daemon_connection() {
         // Just test if we can connect to the daemon
-        match UnixStream::connect(DAEMON_SOCKET) {
-            Ok(_) => println!("✓ Daemon is running"),
-            Err(e) => println!("✗ Daemon not running: {}", e),
+        let socket_path = get_socket_path();
+        match UnixStream::connect(&socket_path) {
+            Ok(_) => println!("Daemon is running"),
+            Err(e) => println!("Daemon not running: {}", e),
         }
     }
 
     #[test]
     #[ignore] // Requires daemon running
     fn test_ping_daemon() {
-        let mut stream = UnixStream::connect(DAEMON_SOCKET).unwrap();
+        let socket_path = get_socket_path();
+        let mut stream = UnixStream::connect(&socket_path).unwrap();
         let request = serde_json::json!({"command": "ping"});
         writeln!(stream, "{}", request).unwrap();
 

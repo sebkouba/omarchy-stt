@@ -44,7 +44,7 @@
       "name": "ask_claude_code",
       "description": "Invoke Claude Code CLI to work on the current project. Call when user says 'ask Claude to...', 'have Claude...', 'tell Claude Code...', 'Claude please...'. Use for coding tasks like refactoring, adding features, fixing bugs, writing tests, etc.",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && claude -p '{prompt}'"],
+      "args": ["-c", "cd $HOME/code/current-project && claude -p '{prompt}'"],
       "parameters": {
         "prompt": {
           "type": "string",
@@ -60,7 +60,7 @@
       "parameters": {
         "directory": {
           "type": "string",
-          "description": "Project directory path (e.g., '/home/seb/code/transcribe-rs-v2', '~/projects/website', '/home/seb/code/myapp')"
+          "description": "Project directory path (e.g., '/path/to/transcribe-rs-v2', '~/projects/website', '$HOME/code/myapp')"
         },
         "prompt": {
           "type": "string",
@@ -93,7 +93,7 @@
     "claude_code_integration": {
       "ad_hoc_mode": "claude -p 'task description' runs Claude Code in ad hoc mode without a persistent chat",
       "working_directory": "You need to 'cd' to the project directory first, hence 'sh -c \"cd /path && claude -p...\"'",
-      "current_project": "Update /home/seb/code/current-project to your active project, or use ask_claude_code_in_directory to specify",
+      "current_project": "Update $HOME/code/current-project to your active project, or use ask_claude_code_in_directory to specify",
       "examples": [
         "Say: 'Ask Claude to add tests' → runs in current-project",
         "Say: 'Ask Claude to refactor transcribe-rs' → extracts directory from context",

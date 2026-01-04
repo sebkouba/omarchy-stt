@@ -16,8 +16,8 @@ transcribe-rs is a Rust library and CLI tool for audio transcription supporting 
 
 **This is transcribe-rs-v2** - a fork/continuation of the original transcribe-rs project.
 
-- **Original project**: `/home/seb/code/cloned/transcribe-rs` (still active and in use)
-- **This project (v2)**: `/home/seb/code/cloned/transcribe-rs-v2` (experimental Rust consolidation)
+- **Original project**: `$PROJECT_ROOT/../transcribe-rs` (still active and in use)
+- **This project (v2)**: `$PROJECT_ROOT` (experimental Rust consolidation)
 - **Key difference**: Different socket path (`/tmp/transcribe-rs-v2.sock` vs `/tmp/transcribe-rs.sock`) allows both versions to run simultaneously
 - **Purpose**: Consolidate bash scripts into Rust for better reliability, maintainability, and distribution
 

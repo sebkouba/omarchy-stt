@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 /// Matching algorithm for fuzzy string comparison
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum MatchingAlgorithm {
     /// Jaro-Winkler distance (better for names, gives weight to matching prefixes)
@@ -12,13 +12,8 @@ pub enum MatchingAlgorithm {
     /// Levenshtein edit distance (better for general text)
     Levenshtein,
     /// Automatically choose based on pattern (single word = JaroWinkler, multi-word = Levenshtein)
+    #[default]
     Auto,
-}
-
-impl Default for MatchingAlgorithm {
-    fn default() -> Self {
-        MatchingAlgorithm::Auto
-    }
 }
 
 /// A correction rule for fixing transcription errors

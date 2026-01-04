@@ -7,7 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 
 /// Main configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     pub audio: AudioConfig,
     pub model: ModelConfig,
@@ -213,23 +213,6 @@ pub struct HotkeyBinding {
     pub gui: bool,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            audio: AudioConfig::default(),
-            model: ModelConfig::default(),
-            daemon: DaemonConfig::default(),
-            integration: IntegrationConfig::default(),
-            transcription_corrections: TranscriptionCorrectionsConfig::default(),
-            dictation_logging: DictationLoggingConfig::default(),
-            llm: LlmConfig::default(),
-            ocr: OcrConfig::default(),
-            watch: WatchConfig::default(),
-            hotkey: HotkeyConfig::default(),
-            vad: VadConfig::default(),
-        }
-    }
-}
 
 impl Default for AudioConfig {
     fn default() -> Self {
@@ -384,7 +367,7 @@ impl Default for WatchConfig {
                 "flac".to_string(),
                 "webm".to_string(),
             ],
-            debounce_ms: 1000, // 1 second debounce
+            debounce_ms: 1000,   // 1 second debounce
             scan_existing: true, // Process existing files on startup
         }
     }

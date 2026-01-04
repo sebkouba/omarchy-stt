@@ -35,13 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_file = &args[1];
 
     // Connect to daemon
-    let stream = UnixStream::connect(socket_path).map_err(|e| {
+    let stream = UnixStream::connect(socket_path).inspect_err(|_| {
         eprintln!(
             "❌ Failed to connect to transcribe daemon at {}",
             socket_path
         );
         eprintln!("   Is the daemon running? Start it with: transcribe-daemon");
-        e
     })?;
 
     let mut reader = BufReader::new(stream.try_clone()?);

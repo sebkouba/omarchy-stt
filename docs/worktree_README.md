@@ -22,7 +22,7 @@ Choose one based on your needs:
 
 **Use if:** You only work on transcribe-rs-v2
 
-- Hardcoded to work in `/home/seb/code/cloned/transcribe-rs-v2`
+- Hardcoded to work in `$PROJECT_ROOT` (you'll need to update paths for your setup)
 - Simpler parameter set
 - No project selection needed
 
@@ -102,7 +102,7 @@ Claude Code reads .claude-task.md and starts working
 ### Directory Structure
 
 ```
-/home/seb/code/cloned/
+~/code/
 ├── transcribe-rs-v2/              # Your main repo
 │   ├── claude-worktree.sh         # Core script
 │   └── tools/
@@ -192,7 +192,7 @@ Your dictation LLM **cannot currently chain tool calls** (select project → cre
   "name": "list_projects",
   "description": "List available projects for worktree creation",
   "command": "cat",
-  "args": ["/home/seb/code/cloned/transcribe-rs-v2/tools/projects.md"]
+  "args": ["$PROJECT_ROOT/tools/projects.md"]
 }
 ```
 

@@ -2,12 +2,12 @@
   "name": "claude_worktree",
   "description": "Create a git worktree and launch Claude Code to implement a feature in any project. Call when user says 'create worktree in [project] for X', 'new branch in transcribe for Y'. Supports: transcribe (default), transcribe-v1, or custom path.",
   "command": "/bin/bash",
-  "args": ["-c", "nohup \"$0\" \"$@\" >/dev/null 2>&1 & disown", "/home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh", "{project_path}", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
+  "args": ["-c", "nohup \"$0\" \"$@\" >/dev/null 2>&1 & disown", "$PROJECT_ROOT/tools/claude_worktree_wrapper.sh", "{project_path}", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
   "parameters": {
     "project_path": {
       "type": "string",
-      "description": "Project to work on. Can be: '/home/seb/code/cloned/transcribe-rs-v2' (default), '/home/seb/code/cloned/transcribe-rs' (v1), or any other git repo path. If user just says 'transcribe', use v2 path.",
-      "default": "/home/seb/code/cloned/transcribe-rs-v2"
+      "description": "Project to work on. Can be: '$PROJECT_ROOT' (default), '$PROJECT_ROOT/../transcribe-rs' (v1), or any other git repo path. If user just says 'transcribe', use v2 path. Replace $PROJECT_ROOT with your actual project path.",
+      "default": "$PROJECT_ROOT"
     },
     "branch_name": {
       "type": "string",

@@ -58,7 +58,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Step 2: Get duration and read samples
     let duration = file_watcher::get_wav_duration(&wav_path)?;
-    eprintln!("  Audio duration: {:.1}s ({:.1} min)", duration, duration / 60.0);
+    eprintln!(
+        "  Audio duration: {:.1}s ({:.1} min)",
+        duration,
+        duration / 60.0
+    );
 
     let samples = audio::read_wav_samples(&wav_path)?;
 
@@ -100,7 +104,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => ParakeetModelParams::int8(),
     };
     engine.load_model_with_params(&model_path, model_params)?;
-    eprintln!("  Model loaded in {:.1}s", model_load_start.elapsed().as_secs_f32());
+    eprintln!(
+        "  Model loaded in {:.1}s",
+        model_load_start.elapsed().as_secs_f32()
+    );
 
     // Step 7: Transcribe all chunks
     let mut full_text = String::new();
@@ -118,7 +125,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     full_text.push(' ');
                 }
                 full_text.push_str(&result.text);
-                eprintln!("    Chunk transcribed in {:.1}s", chunk_start.elapsed().as_secs_f32());
+                eprintln!(
+                    "    Chunk transcribed in {:.1}s",
+                    chunk_start.elapsed().as_secs_f32()
+                );
             }
             Err(e) => {
                 eprintln!("Error transcribing chunk {}: {}", i + 1, e);
@@ -200,11 +210,11 @@ fn convert_to_wav(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 /// Write f32 samples to a temporary WAV file
-fn write_temp_wav(samples: &[f32], sample_rate: u32) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let path = PathBuf::from("/tmp").join(format!(
-        "batch_vad_filtered_{}.wav",
-        std::process::id()
-    ));
+fn write_temp_wav(
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let path = PathBuf::from("/tmp").join(format!("batch_vad_filtered_{}.wav", std::process::id()));
 
     let spec = hound::WavSpec {
         channels: 1,

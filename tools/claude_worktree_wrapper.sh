@@ -55,8 +55,9 @@ fi
 SCRIPT_PATH=""
 if [ -f "./claude-worktree.sh" ]; then
     SCRIPT_PATH="./claude-worktree.sh"
-elif [ -f "/home/seb/code/cloned/transcribe-rs-v2/claude-worktree.sh" ]; then
-    SCRIPT_PATH="/home/seb/code/cloned/transcribe-rs-v2/claude-worktree.sh"
+# NOTE: Update this fallback path to your actual project location if needed
+elif [ -f "$HOME/code/transcribe-rs-v2/claude-worktree.sh" ]; then
+    SCRIPT_PATH="$HOME/code/transcribe-rs-v2/claude-worktree.sh"
 else
     echo "Error: claude-worktree.sh not found"
     exit 1

@@ -99,7 +99,7 @@ fn read_timing_entries() -> Vec<String> {
     match fs::File::open(&path) {
         Ok(file) => BufReader::new(file)
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.is_empty())
             .collect(),
         Err(_) => Vec::new(),
@@ -152,7 +152,7 @@ pub fn estimate_transcription_time(recording_ms: u64) -> Option<u64> {
     let with_buffer = (estimated as f64 * 1.2) as u64;
 
     // Minimum 200ms, maximum 10s
-    let clamped = with_buffer.max(200).min(10000);
+    let clamped = with_buffer.clamp(200, 10000);
 
     debug!(
         "Estimated transcription time: {}ms (ratio={:.3}, entries={})",
@@ -172,7 +172,7 @@ pub const FALLBACK_PULSE_MS: u64 = 500;
 pub fn estimate_vad_time(audio_duration_ms: u64) -> u64 {
     // Rough estimate: 80ms per second of audio, minimum 200ms
     let estimate = (audio_duration_ms as f64 * 0.08) as u64;
-    estimate.max(200).min(3000) // Cap at 3 seconds
+    estimate.clamp(200, 3000) // Cap at 3 seconds
 }
 
 /// Estimate total processing time (VAD + transcription)
@@ -272,7 +272,7 @@ fn read_api_timing_entries() -> Vec<String> {
     match fs::File::open(&path) {
         Ok(file) => BufReader::new(file)
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.is_empty())
             .collect(),
         Err(_) => Vec::new(),
@@ -317,7 +317,7 @@ pub fn estimate_api_time(text_length: usize) -> Option<u64> {
     if total_chars == 0 {
         // If no chars but have entries, just use average time
         let avg = total_ms / entries.len() as u64;
-        return Some(avg.max(200).min(10000));
+        return Some(avg.clamp(200, 10000));
     }
 
     // ms per character ratio
@@ -326,7 +326,7 @@ pub fn estimate_api_time(text_length: usize) -> Option<u64> {
 
     // Add buffer and clamp
     let with_buffer = (estimated as f64 * 1.2) as u64;
-    let clamped = with_buffer.max(300).min(15000);
+    let clamped = with_buffer.clamp(300, 15000);
 
     debug!(
         "Estimated API time: {}ms (ms_per_char={:.3}, entries={})",

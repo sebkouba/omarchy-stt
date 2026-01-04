@@ -91,48 +91,56 @@ pub fn log_performance_detailed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::timing;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    /// Create test metrics without relying on shared timestamp file
+    fn create_test_metrics() -> PerformanceMetrics {
+        let start_ns = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+
+        PerformanceMetrics {
+            start_ns,
+            recording_stop_ns: None,
+            transcription_done_ns: None,
+            processing_done_ns: None,
+            clipboard_done_ns: None,
+            paste_done_ns: None,
+        }
+    }
 
     #[test]
     fn test_log_performance() {
-        // Save start time and create metrics
-        timing::save_start_time().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let mut metrics = PerformanceMetrics::from_start_time().unwrap();
+        // Create metrics directly without using shared timestamp file
+        let mut metrics = create_test_metrics();
+        std::thread::sleep(Duration::from_millis(10));
         metrics.mark_paste_done();
 
         // Log performance
         let result = log_performance(&metrics, "Test transcription");
         assert!(result.is_ok());
-
-        // Clean up
-        timing::cleanup_timestamp_file();
     }
 
     #[test]
     fn test_log_performance_detailed() {
-        // Save start time and create metrics
-        timing::save_start_time().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Create metrics directly without using shared timestamp file
+        let mut metrics = create_test_metrics();
 
-        let mut metrics = PerformanceMetrics::from_start_time().unwrap();
+        std::thread::sleep(Duration::from_millis(5));
         metrics.mark_recording_stop();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
         metrics.mark_transcription_done();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
         metrics.mark_processing_done();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
         metrics.mark_clipboard_done();
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::thread::sleep(Duration::from_millis(5));
         metrics.mark_paste_done();
 
         // Log detailed performance
         let result = log_performance_detailed(&metrics, "Test transcription with details");
         assert!(result.is_ok());
-
-        // Clean up
-        timing::cleanup_timestamp_file();
     }
 
     #[test]

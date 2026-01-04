@@ -359,7 +359,13 @@ fn test_escape_cancels_long_recording() {
 
     // Press Escape
     let t2 = t1 + Duration::from_millis(100);
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t2);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-escape"),
+        &bindings,
+        &config,
+        t2,
+    );
     assert_eq!(
         actions,
         vec![
@@ -401,7 +407,13 @@ fn test_escape_does_not_affect_cache() {
     let t3 = t2 + Duration::from_millis(50);
     send_event(&mut sm, deactivate("transcribe-e"), &bindings, &config, t3);
     let t4 = t3 + Duration::from_millis(100);
-    send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t4);
+    send_event(
+        &mut sm,
+        activate("transcribe-escape"),
+        &bindings,
+        &config,
+        t4,
+    );
 
     // Previous transcription should still be cached
     assert_eq!(sm.last_transcription(), Some("Preserved text"));
@@ -541,7 +553,13 @@ fn test_bind_unbind_are_always_paired() {
     assert_eq!(bind_count, 1);
 
     let t6 = t5 + Duration::from_millis(100);
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t6);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-escape"),
+        &bindings,
+        &config,
+        t6,
+    );
     track_actions(&actions, &mut bind_count);
     assert_eq!(bind_count, 0, "Escape should unbind");
 }
@@ -565,7 +583,13 @@ fn test_enter_key_maintains_bind_state() {
     let t2 = t1 + Duration::from_millis(1600);
 
     // Press Enter
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-enter"),
+        &bindings,
+        &config,
+        t2,
+    );
 
     // Should unbind, submit, then rebind (in that order)
     assert_eq!(
@@ -600,7 +624,13 @@ fn test_multiple_enter_presses_in_long_recording() {
     let t2 = t1 + Duration::from_millis(1600);
 
     // First Enter
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-enter"),
+        &bindings,
+        &config,
+        t2,
+    );
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -620,7 +650,13 @@ fn test_multiple_enter_presses_in_long_recording() {
 
     // Wait and do second Enter
     let t3 = t2 + Duration::from_millis(1600);
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t3);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-enter"),
+        &bindings,
+        &config,
+        t3,
+    );
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -640,7 +676,13 @@ fn test_multiple_enter_presses_in_long_recording() {
 
     // Third Enter
     let t4 = t3 + Duration::from_millis(1600);
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t4);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-enter"),
+        &bindings,
+        &config,
+        t4,
+    );
     assert!(actions.contains(&Action::SubmitAndContinue {
         prompt: Some("grammar".to_string())
     }));
@@ -707,7 +749,13 @@ fn test_unknown_shortcut_during_recording_is_ignored() {
 
     // Unknown shortcut activation - should be ignored
     let t1 = t0 + Duration::from_millis(100);
-    let actions = send_event(&mut sm, activate("transcribe-unknown"), &bindings, &config, t1);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-unknown"),
+        &bindings,
+        &config,
+        t1,
+    );
     assert!(actions.is_empty());
     assert!(matches!(sm.state(), RecordingState::Recording { .. }));
 
@@ -907,7 +955,13 @@ fn test_realistic_session_long_recording_with_enter() {
     let t2 = t1 + Duration::from_millis(1600);
 
     // Press Enter to submit first part
-    let actions = send_event(&mut sm, activate("transcribe-enter"), &bindings, &config, t2);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-enter"),
+        &bindings,
+        &config,
+        t2,
+    );
     assert!(actions.contains(&Action::SubmitAndContinue { prompt: None }));
 
     // User speaks some more...
@@ -940,7 +994,13 @@ fn test_realistic_session_mistake_and_cancel() {
 
     // Oops, wrong hotkey! Cancel
     let t2 = t1 + Duration::from_millis(100);
-    let actions = send_event(&mut sm, activate("transcribe-escape"), &bindings, &config, t2);
+    let actions = send_event(
+        &mut sm,
+        activate("transcribe-escape"),
+        &bindings,
+        &config,
+        t2,
+    );
     assert!(actions.contains(&Action::CancelRecording));
     assert!(matches!(sm.state(), RecordingState::Idle));
 

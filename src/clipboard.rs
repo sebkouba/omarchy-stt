@@ -20,9 +20,7 @@ impl SavedClipboard {
     pub fn save() -> Self {
         debug!("Saving current clipboard content via wl-paste");
 
-        let result = Command::new("wl-paste")
-            .arg("--no-newline")
-            .output();
+        let result = Command::new("wl-paste").arg("--no-newline").output();
 
         match result {
             Ok(output) if output.status.success() => {
@@ -86,9 +84,7 @@ impl SavedClipboard {
             None => {
                 debug!("No saved clipboard content to restore (was empty)");
                 // Clear the clipboard since it was originally empty
-                let status = Command::new("wl-copy")
-                    .arg("--clear")
-                    .status();
+                let status = Command::new("wl-copy").arg("--clear").status();
 
                 match status {
                     Ok(s) if s.success() => {
@@ -364,6 +360,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires Wayland session with wl-copy/wl-paste and shared clipboard state
     fn test_clipboard_save_and_restore() {
         // Skip if wl-copy/wl-paste not available (CI environment)
         if std::process::Command::new("which")
@@ -397,7 +394,10 @@ mod tests {
             .output()
             .expect("wl-paste should work");
         let after_text = String::from_utf8_lossy(&after_copy.stdout);
-        assert_eq!(after_text, dictation_text, "Clipboard should have dictation text");
+        assert_eq!(
+            after_text, dictation_text,
+            "Clipboard should have dictation text"
+        );
 
         // Restore original content
         saved.restore().expect("Restore should succeed");
@@ -453,6 +453,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires Wayland session with wl-copy/wl-paste and shared clipboard state
     fn test_copy_paste_workflow_no_paste() {
         // Test the workflow with auto_paste disabled
         // This tests copy and trailing space handling without requiring ydotool
@@ -482,13 +483,19 @@ mod tests {
             restore_delay_ms: 0,
         };
 
-        let result = copy_paste_workflow("Hello world.", &options)
-            .expect("Workflow should succeed");
+        let result =
+            copy_paste_workflow("Hello world.", &options).expect("Workflow should succeed");
 
         // Verify workflow result
         assert!(!result.paste_attempted, "Paste should not be attempted");
-        assert!(result.paste_succeeded.is_none(), "Paste result should be None");
-        assert!(result.clipboard_restored.is_none(), "Restore not done when paste not attempted");
+        assert!(
+            result.paste_succeeded.is_none(),
+            "Paste result should be None"
+        );
+        assert!(
+            result.clipboard_restored.is_none(),
+            "Restore not done when paste not attempted"
+        );
 
         // Verify clipboard has the new content (with trailing space)
         let clipboard_content = std::process::Command::new("wl-paste")
@@ -496,10 +503,14 @@ mod tests {
             .output()
             .expect("wl-paste should work");
         let text = String::from_utf8_lossy(&clipboard_content.stdout);
-        assert_eq!(text, "Hello world. ", "Clipboard should have text with trailing space");
+        assert_eq!(
+            text, "Hello world. ",
+            "Clipboard should have text with trailing space"
+        );
     }
 
     #[test]
+    #[ignore] // Requires Wayland session with wl-copy/wl-paste, ydotool, and shared clipboard state
     fn test_copy_paste_workflow_with_preservation() {
         // Test the full workflow including paste and clipboard restoration
         // Requires ydotool to be available
@@ -580,7 +591,9 @@ mod tests {
                         "Clipboard should be restored to original content after paste"
                     );
                 } else {
-                    println!("Paste failed (ydotool daemon not running?), skipping restoration check");
+                    println!(
+                        "Paste failed (ydotool daemon not running?), skipping restoration check"
+                    );
                 }
             }
             Err(e) => {

@@ -20,8 +20,8 @@ Make sure all paths in the JSON are absolute and correct:
 
 ```json
 {
-  "command": "/home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh",
-  "args": ["/home/seb/code/cloned/transcribe-rs-v2", ...]
+  "command": "/path/to/transcribe-rs-v2/tools/claude_worktree_wrapper.sh",
+  "args": ["/path/to/transcribe-rs-v2", ...]
 }
 ```
 
@@ -31,7 +31,7 @@ Before trying with voice, test the command manually:
 
 ```bash
 # Test without launching terminal (uses --no-terminal flag)
-/home/seb/code/cloned/transcribe-rs-v2/tools/test_tool.sh
+$PROJECT_ROOT/tools/test_tool.sh
 ```
 
 ## Step 4: Reload Your Dictation App
@@ -63,10 +63,10 @@ Examples of what to say:
 
 ### Multi-Project Commands (for multi-project tool)
 - **"create worktree in transcribe for adding feature X"**
-  - project_path: "/home/seb/code/cloned/transcribe-rs-v2"
+  - project_path: "/path/to/transcribe-rs-v2"
 
 - **"new branch in transcribe v1 for fixing bug Y"**
-  - project_path: "/home/seb/code/cloned/transcribe-rs"
+  - project_path: "/path/to/transcribe-rs"
 
 ## How the LLM Should Process This
 
@@ -87,7 +87,7 @@ Your LLM tool calling system should:
    - **Workspace:** Extract numbers if mentioned
      - "on workspace 3" → "3"
    - **Project:** Extract project name if mentioned (multi-project only)
-     - "in transcribe v1" → "/home/seb/code/cloned/transcribe-rs"
+     - "in transcribe v1" → "/path/to/transcribe-rs"
 
 3. **Call the tool** with these parameters:
    ```json
@@ -118,14 +118,14 @@ When successful:
 ls -la ~/path/to/dictation-config/tools/
 
 # Make sure wrapper script is executable
-ls -la /home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh
+ls -la $PROJECT_ROOT/tools/claude_worktree_wrapper.sh
 ```
 
 ### Command Fails
 ```bash
 # Test the wrapper directly
-/home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh \
-    /home/seb/code/cloned/transcribe-rs-v2 \
+$PROJECT_ROOT/tools/claude_worktree_wrapper.sh \
+    $PROJECT_ROOT \
     "test-branch" \
     "Test task description" \
     --no-terminal
@@ -190,7 +190,7 @@ You might want to add companion tools:
   "name": "list_worktrees",
   "description": "Show all active Claude Code worktrees",
   "command": "git",
-  "args": ["-C", "/home/seb/code/cloned/transcribe-rs-v2", "worktree", "list"]
+  "args": ["-C", "$PROJECT_ROOT", "worktree", "list"]
 }
 ```
 
@@ -200,7 +200,7 @@ You might want to add companion tools:
   "name": "remove_worktree",
   "description": "Clean up a finished worktree",
   "command": "git",
-  "args": ["-C", "/home/seb/code/cloned/transcribe-rs-v2", "worktree", "remove", "{path}"],
+  "args": ["-C", "$PROJECT_ROOT", "worktree", "remove", "{path}"],
   "parameters": {
     "path": {
       "type": "string",
@@ -239,7 +239,7 @@ LLM generates parameters:
     ↓
 Dictation app calls:
     /home/.../claude_worktree_wrapper.sh \
-        /home/seb/code/cloned/transcribe-rs-v2 \
+        $PROJECT_ROOT \
         "add-led-support" \
         "Add LED support" \
         --workspace ""

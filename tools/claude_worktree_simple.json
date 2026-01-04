@@ -2,7 +2,7 @@
   "name": "claude_worktree",
   "description": "Create a git worktree in transcribe-rs-v2 and launch Claude Code to implement a feature. Call when user says 'create worktree for X', 'new branch for Y', 'claude work on Z'. Branch name auto-generated from task.",
   "command": "/bin/bash",
-  "args": ["-c", "nohup \"$0\" \"$@\" >/dev/null 2>&1 & disown", "/home/seb/code/cloned/transcribe-rs-v2/tools/claude_worktree_wrapper.sh", "/home/seb/code/cloned/transcribe-rs-v2", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
+  "args": ["-c", "nohup \"$0\" \"$@\" >/dev/null 2>&1 & disown", "$PROJECT_ROOT/tools/claude_worktree_wrapper.sh", "$PROJECT_ROOT", "{branch_name}", "{task_description}", "--workspace", "{workspace}"],
   "parameters": {
     "branch_name": {
       "type": "string",

@@ -80,8 +80,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/seb/code/cloned/transcribe-rs-v2
-ExecStart=/home/seb/code/cloned/transcribe-rs-v2/target/release/transcribe-daemon
+WorkingDirectory=%h/transcribe-rs-v2
+ExecStart=%h/transcribe-rs-v2/target/release/transcribe-daemon
 Restart=on-failure
 RestartSec=5s
 

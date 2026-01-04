@@ -28,7 +28,12 @@ use transcribe_rs::config::{Config, VadConfig};
 use transcribe_rs::logging;
 use transcribe_rs::vad::VadManager;
 
-const SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
+const DEFAULT_SOCKET_PATH: &str = "/tmp/transcribe-rs-v2-recording.sock";
+
+/// Get the recording daemon socket path from environment or use default
+fn get_socket_path() -> String {
+    std::env::var("RECORDING_SOCKET_PATH").unwrap_or_else(|_| DEFAULT_SOCKET_PATH.to_string())
+}
 const SAMPLE_RATE: u32 = 16000; // 16kHz
 const BUFFER_DURATION_SECONDS: usize = 120; // 2 minutes
 const OUTPUT_WAV_PATH: &str = "/tmp/ptt_current.wav";
@@ -74,10 +79,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.vad.enabled, config.vad.threshold, config.vad.min_duration_seconds
     );
 
-    // Get microphone from environment or use default
-    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| {
-        "alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo".to_string()
-    });
+    // Get microphone from environment or use PulseAudio default
+    //
+    // To find available microphones, run:
+    //   pactl list sources short
+    //
+    // Or use the list-microphones utility:
+    //   list-microphones
+    //
+    // Then set RECORDING_MICROPHONE env var in your systemd service or shell:
+    //   RECORDING_MICROPHONE="alsa_input.usb-..."  recording-daemon
+    //
+    // Use "default" to let PulseAudio choose the default input device
+    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
 
     // Get buffer size from environment or use default
     let buffer_seconds = std::env::var("RECORDING_BUFFER_SIZE")
@@ -127,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Cleanup
     debug!("Shutting down daemon");
     cleanup_ffmpeg(Arc::clone(&state));
-    fs::remove_file(SOCKET_PATH).ok();
+    fs::remove_file(get_socket_path()).ok();
 
     info!("=== Recording daemon stopped ===");
     Ok(())
@@ -301,10 +315,9 @@ fn spawn_reader_thread(buffer: SharedBuffer, state: SharedState, is_recording: A
 fn respawn_ffmpeg(state: &SharedState) -> Result<(), Box<dyn std::error::Error>> {
     debug!("Respawning FFmpeg...");
 
-    // Get microphone from environment
-    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| {
-        "alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo".to_string()
-    });
+    // Get microphone from environment or use PulseAudio default
+    // (See main() for documentation on how to find and configure microphones)
+    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
 
     let child = Command::new("ffmpeg")
         .args([
@@ -338,11 +351,13 @@ fn listen_on_socket(
     state: SharedState,
     running: Arc<AtomicBool>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Remove old socket if it exists
-    fs::remove_file(SOCKET_PATH).ok();
+    let socket_path = get_socket_path();
 
-    let listener = UnixListener::bind(SOCKET_PATH)?;
-    debug!("Listening on socket: {}", SOCKET_PATH);
+    // Remove old socket if it exists
+    fs::remove_file(&socket_path).ok();
+
+    let listener = UnixListener::bind(&socket_path)?;
+    debug!("Listening on socket: {}", socket_path);
 
     // Set socket timeout so we can check running flag
     listener.set_nonblocking(true)?;
@@ -387,7 +402,7 @@ fn handle_client(mut stream: UnixStream, state: SharedState) {
 
                 debug!("Received: {}", line);
 
-                let response = match serde_json::from_str::<Value>(&line) {
+                let response = match serde_json::from_str::<Value>(line) {
                     Ok(request) => handle_request(request, Arc::clone(&state)),
                     Err(e) => json!({"ok": false, "error": format!("Invalid JSON: {}", e)}),
                 };

@@ -49,7 +49,7 @@ Edit `~/.config/transcribe-rs/config.toml`:
 ```toml
 [transcription_corrections]
 enabled = true
-corrections_file = "/home/seb/.config/transcribe-rs/transcription_corrections.json"
+corrections_file = "~/.config/transcribe-rs/transcription_corrections.json"
 ```
 
 ## Corrections File Format

@@ -71,9 +71,9 @@ pub fn capture_active_window(config: &OcrConfig) -> Result<String, Box<dyn Error
         .and_then(|v| v.as_array())
         .ok_or("Missing 'size' field in hyprctl output")?;
 
-    let x = at.get(0).and_then(|v| v.as_i64()).unwrap_or(0);
+    let x = at.first().and_then(|v| v.as_i64()).unwrap_or(0);
     let y = at.get(1).and_then(|v| v.as_i64()).unwrap_or(0);
-    let width = size.get(0).and_then(|v| v.as_i64()).unwrap_or(800);
+    let width = size.first().and_then(|v| v.as_i64()).unwrap_or(800);
     let height = size.get(1).and_then(|v| v.as_i64()).unwrap_or(600);
 
     // Format geometry for grim: "x,y widthxheight"

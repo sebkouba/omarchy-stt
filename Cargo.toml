@@ -2,9 +2,13 @@
 name = "transcribe-rs"
 version = "0.1.4"
 edition = "2021"
-description = "A simple library to help you transcribe audio"
+description = "Fast, local push-to-talk dictation system for Linux/Wayland with Parakeet and Whisper engines"
 license = "MIT"
-repository = "https://github.com/cjpais/transcribe-rs"
+# TODO: Update to your actual GitHub repository URL before publishing
+repository = "https://github.com/YOUR_USERNAME/transcribe-rs-v2"
+homepage = "https://github.com/YOUR_USERNAME/transcribe-rs-v2"
+keywords = ["transcription", "speech-to-text", "dictation", "wayland", "linux"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 hound = "3.5.1"
@@ -90,6 +94,10 @@ path = "src/bin/transcribe-batch.rs"
 [[bin]]
 name = "watch-daemon"
 path = "src/bin/watch-daemon.rs"
+
+[[bin]]
+name = "list-microphones"
+path = "src/bin/list-microphones.rs"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 whisper-rs = { version = "0.13.2", features = ["metal"] }

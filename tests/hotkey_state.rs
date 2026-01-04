@@ -579,7 +579,9 @@ mod double_tap {
         };
 
         // Different key deactivated
-        let result = state.clone().transition(deactivated("transcribe-q"), &ctx, Instant::now());
+        let result = state
+            .clone()
+            .transition(deactivated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingRepaste { .. }
@@ -1125,7 +1127,9 @@ mod edge_cases {
         };
 
         // Try activation
-        let result = state.clone().transition(activated("transcribe-q"), &ctx, Instant::now());
+        let result = state
+            .clone()
+            .transition(activated("transcribe-q"), &ctx, Instant::now());
         assert!(matches!(
             result.new_state,
             RecordingState::PendingTranscription { .. }

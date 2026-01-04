@@ -201,7 +201,12 @@ impl RecordingState {
     ///
     /// The `now` parameter allows tests to control time for deterministic testing.
     /// Production code should pass `Instant::now()`.
-    pub fn transition(self, event: HotkeyEvent, ctx: &TransitionContext, now: Instant) -> TransitionResult {
+    pub fn transition(
+        self,
+        event: HotkeyEvent,
+        ctx: &TransitionContext,
+        now: Instant,
+    ) -> TransitionResult {
         match (&self, &event) {
             // ─────────────────────────────────────────────────────────────────
             // IDLE state
@@ -389,17 +394,15 @@ impl RecordingState {
             (
                 RecordingState::LongRecording { prompt, .. },
                 HotkeyEvent::Activated { shortcut_id },
-            ) if shortcut_id == "transcribe-super" => {
-                TransitionResult {
-                    new_state: RecordingState::Idle,
-                    actions: vec![
-                        Action::UnbindLongRecordingKeys,
-                        Action::SubmitAndEnd {
-                            prompt: prompt.clone(),
-                        },
-                    ],
-                }
-            }
+            ) if shortcut_id == "transcribe-super" => TransitionResult {
+                new_state: RecordingState::Idle,
+                actions: vec![
+                    Action::UnbindLongRecordingKeys,
+                    Action::SubmitAndEnd {
+                        prompt: prompt.clone(),
+                    },
+                ],
+            },
 
             // Different hotkey activated: switch prompt
             (RecordingState::LongRecording { .. }, HotkeyEvent::Activated { shortcut_id }) => {

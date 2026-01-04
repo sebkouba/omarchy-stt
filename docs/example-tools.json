@@ -40,7 +40,7 @@
       "name": "npm_install",
       "description": "Install an npm package in current project. Call when user says 'npm install react', 'install lodash', 'add typescript as dev dependency'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && npm install {package}"],
+      "args": ["-c", "cd $HOME/code/current-project && npm install {package}"],
       "parameters": {
         "package": {
           "type": "string",
@@ -52,21 +52,21 @@
       "name": "start_dev_server",
       "description": "Start the development server (npm run dev). Call when user says 'start the dev server', 'run npm dev', 'start development'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && npm run dev &"],
+      "args": ["-c", "cd $HOME/code/current-project && npm run dev &"],
       "parameters": {}
     },
     {
       "name": "run_tests",
       "description": "Run test suite. Call when user says 'run tests', 'run the test suite', 'execute tests'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && npm test"],
+      "args": ["-c", "cd $HOME/code/current-project && npm test"],
       "parameters": {}
     },
     {
       "name": "git_commit",
       "description": "Create a git commit with a message. Call when user says 'git commit with message fix bug', 'commit changes saying added feature', 'make a commit called updated docs'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && git add -A && git commit -m '{message}'"],
+      "args": ["-c", "cd $HOME/code/current-project && git add -A && git commit -m '{message}'"],
       "parameters": {
         "message": {
           "type": "string",
@@ -78,7 +78,7 @@
       "name": "git_push",
       "description": "Push commits to remote repository. Call when user says 'push to github', 'git push', 'push changes to remote'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && git push"],
+      "args": ["-c", "cd $HOME/code/current-project && git push"],
       "parameters": {}
     },
     {
@@ -89,7 +89,7 @@
       "parameters": {
         "path": {
           "type": "string",
-          "description": "Path to project directory (can be absolute or relative, e.g., '~/code/myproject', '/home/seb/projects/website')"
+          "description": "Path to project directory (can be absolute or relative, e.g., '~/code/myproject', '/path/to/projects/website')"
         }
       }
     },
@@ -109,7 +109,7 @@
       "name": "screenshot_region",
       "description": "Take a screenshot of a selected region. Call when user says 'take a screenshot', 'screenshot selection', 'capture region'",
       "command": "grim",
-      "args": ["-g", "$(slurp)", "/home/seb/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"],
+      "args": ["-g", "$(slurp)", "$HOME/Pictures/screenshot-$(date +%Y%m%d-%H%M%S).png"],
       "parameters": {}
     },
     {
@@ -123,14 +123,14 @@
       "name": "docker_compose_up",
       "description": "Start Docker Compose services. Call when user says 'start docker compose', 'docker compose up', 'bring up the containers'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && docker compose up -d"],
+      "args": ["-c", "cd $HOME/code/current-project && docker compose up -d"],
       "parameters": {}
     },
     {
       "name": "docker_compose_down",
       "description": "Stop Docker Compose services. Call when user says 'stop docker compose', 'bring down containers', 'docker compose down'",
       "command": "sh",
-      "args": ["-c", "cd /home/seb/code/current-project && docker compose down"],
+      "args": ["-c", "cd $HOME/code/current-project && docker compose down"],
       "parameters": {}
     },
     {
@@ -184,7 +184,7 @@
       "parameters": {
         "path": {
           "type": "string",
-          "description": "Directory path to open (e.g., '~/Downloads', '/home/seb/Pictures', '.')"
+          "description": "Directory path to open (e.g., '~/Downloads', '$HOME/Pictures', '.')"
         }
       }
     },
