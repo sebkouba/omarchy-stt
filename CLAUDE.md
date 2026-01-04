@@ -11,8 +11,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 3. **Transcription Daemon/Client** (`src/bin/daemon.rs`, `src/bin/client.rs`) - Long-running service with model loaded for fast transcription
 4. **Push-to-Talk CLI** (`src/bin/cli.rs` + support modules) - Desktop integration orchestrating recording, transcription, corrections, and pasting
 
-This is a v2 fork of the original project at `/home/seb/code/cloned/transcribe-rs`. Uses separate socket paths (`/tmp/transcribe-rs-v2.sock` for transcription, `/tmp/transcribe-rs-v2-recording.sock` for recording) to allow simultaneous operation.
-
 ## ⚠️ Primary Code Path: Hotkey Daemon
 
 **IMPORTANT**: The hotkey daemon (`src/bin/hotkey-daemon.rs`) is the primary/active code path for dictation. The CLI (`src/bin/cli.rs`) exists for Hyprland keybinding users but is not the main path.

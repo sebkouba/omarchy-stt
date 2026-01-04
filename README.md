@@ -82,7 +82,7 @@ rustup default stable
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/transcribe-rs-v2
+git clone https://github.com/sebkouba/transcribe-rs-v2
 cd transcribe-rs-v2
 
 # Run installer (checks dependencies, builds binaries, downloads model)
@@ -263,7 +263,7 @@ After=sound.target
 Type=simple
 Environment="RECORDING_MICROPHONE=alsa_input.usb-046d_C922_Pro_Stream_Webcam_C4C393EF-02.analog-stereo"
 Environment="RECORDING_BUFFER_SIZE=120"
-ExecStart=/home/YOUR_USERNAME/code/transcribe-rs-v2/target/release/recording-daemon
+ExecStart=%h/transcribe-rs-v2/target/release/recording-daemon
 Restart=always
 RestartSec=3
 
@@ -279,8 +279,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/YOUR_USERNAME/code/transcribe-rs-v2
-ExecStart=/home/YOUR_USERNAME/code/transcribe-rs-v2/target/release/transcribe-daemon
+WorkingDirectory=%h/transcribe-rs-v2
+ExecStart=%h/transcribe-rs-v2/target/release/transcribe-daemon
 Restart=on-failure
 
 [Install]

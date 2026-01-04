@@ -305,8 +305,8 @@ After=network.target sound.target pulseaudio.service
 
 [Service]
 Type=simple
-ExecStart=/home/seb/code/cloned/transcribe-rs-v2/target/release/recording-daemon
-WorkingDirectory=/home/seb/code/cloned/transcribe-rs-v2
+ExecStart=~/transcribe-rs-v2/target/release/recording-daemon
+WorkingDirectory=~/transcribe-rs-v2
 Restart=always
 RestartSec=5s
 

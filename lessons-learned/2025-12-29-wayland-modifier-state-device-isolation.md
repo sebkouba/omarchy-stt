@@ -330,11 +330,11 @@ Without this, killing the daemon leaves keyboard grabbed (system unusable).
 
 ## Related Files
 
-- `/home/seb/code/cloned/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Main daemon (1030 lines)
-- `/home/seb/code/cloned/transcribe-rs-v2/lessons-learned/hotkey-daemon-keyboard-issues.md` - Documents both solved (Enter debounce) and unsolved (modifier leak) issues
-- `/home/seb/code/cloned/transcribe-rs-v2/lessons-learned/evdev-keyboard-grab.md` - Original evdev grab/ungrab lessons
-- `/home/seb/code/cloned/transcribe-rs-v2/prompts/kb-debounce-release.md` - Original problem statement
-- `/home/seb/code/cloned/transcribe-rs-v2/docs/testing-plan.md` - Phased testing strategy for refactoring
+- `~/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Main daemon (1030 lines)
+- `~/transcribe-rs-v2/lessons-learned/hotkey-daemon-keyboard-issues.md` - Documents both solved (Enter debounce) and unsolved (modifier leak) issues
+- `~/transcribe-rs-v2/lessons-learned/evdev-keyboard-grab.md` - Original evdev grab/ungrab lessons
+- `~/transcribe-rs-v2/prompts/kb-debounce-release.md` - Original problem statement
+- `~/transcribe-rs-v2/docs/testing-plan.md` - Phased testing strategy for refactoring
 
 ## Related Lessons Learned
 

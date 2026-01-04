@@ -24,7 +24,7 @@ sudo systemctl enable --now ydotool
 ## 1. Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/transcribe-rs-v2
+git clone https://github.com/sebkouba/transcribe-rs-v2
 cd transcribe-rs-v2
 cargo build --release
 ```

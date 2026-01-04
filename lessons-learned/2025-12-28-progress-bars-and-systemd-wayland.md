@@ -241,14 +241,14 @@ stop_flag.store(true, Ordering::Relaxed);
 ## Related Files
 
 ### Modified in this session:
-- `/home/seb/.config/systemd/user/hotkey-daemon.service` - Added Wayland environment variables
-- `/home/seb/code/cloned/transcribe-rs-v2/eww/eww.yuck` - Added loading and api widgets
-- `/home/seb/code/cloned/transcribe-rs-v2/eww/eww.scss` - Added `.loading-bar` and `.api-bar` styles
-- `/home/seb/code/cloned/transcribe-rs-v2/src/eww_widget.rs` - Added show/hide/set_progress for loading and API widgets
-- `/home/seb/code/cloned/transcribe-rs-v2/src/transcription_timing.rs` - New module for timing estimation
-- `/home/seb/code/cloned/transcribe-rs-v2/src/recording.rs` - Changed return type to RecordingResult
-- `/home/seb/code/cloned/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Wired in progress animations
-- `/home/seb/code/cloned/transcribe-rs-v2/src/bin/cli.rs` - Updated to use RecordingResult
+- `~/.config/systemd/user/hotkey-daemon.service` - Added Wayland environment variables
+- `~/transcribe-rs-v2/eww/eww.yuck` - Added loading and api widgets
+- `~/transcribe-rs-v2/eww/eww.scss` - Added `.loading-bar` and `.api-bar` styles
+- `~/transcribe-rs-v2/src/eww_widget.rs` - Added show/hide/set_progress for loading and API widgets
+- `~/transcribe-rs-v2/src/transcription_timing.rs` - New module for timing estimation
+- `~/transcribe-rs-v2/src/recording.rs` - Changed return type to RecordingResult
+- `~/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Wired in progress animations
+- `~/transcribe-rs-v2/src/bin/cli.rs` - Updated to use RecordingResult
 
 ### Related lessons:
 - `lessons-learned/eww-recording-widget.md` - Original green bar implementation

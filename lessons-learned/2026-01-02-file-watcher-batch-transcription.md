@@ -14,8 +14,8 @@ Watch a directory (Dropbox sync folder) for new audio files (MP3, M4A, etc.), tr
 ```toml
 [watch]
 enabled = false  # Currently disabled
-watch_dir = "/home/seb/Dropbox/Apps/RecUp App"
-output_dir = "/home/seb/Documents/Transcriptions"
+watch_dir = "~/Dropbox/Apps/RecUp App"
+output_dir = "~/Documents/Transcriptions"
 extensions = ["wav", "m4a", "mp3", "ogg", "flac", "webm"]
 debounce_ms = 1000
 scan_existing = true  # Process existing files on startup

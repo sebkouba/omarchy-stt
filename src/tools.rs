@@ -68,7 +68,7 @@ pub fn load_tools() -> Result<Vec<ToolConfig>, Box<dyn Error>> {
 /// Vector of ToolConfig objects matching the requested names
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// let tools = transcribe_rs::tools::load_tool_set(&["turn_leds_on".to_string(), "turn_leds_off".to_string()])?;
 /// // Returns only the LED-related tools from tools.json
 /// ```

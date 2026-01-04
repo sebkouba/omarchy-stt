@@ -4,9 +4,8 @@ version = "0.1.4"
 edition = "2021"
 description = "Fast, local push-to-talk dictation system for Linux/Wayland with Parakeet and Whisper engines"
 license = "MIT"
-# TODO: Update to your actual GitHub repository URL before publishing
-repository = "https://github.com/YOUR_USERNAME/transcribe-rs-v2"
-homepage = "https://github.com/YOUR_USERNAME/transcribe-rs-v2"
+repository = "https://github.com/sebkouba/transcribe-rs-v2"
+homepage = "https://github.com/sebkouba/transcribe-rs-v2"
 keywords = ["transcription", "speech-to-text", "dictation", "wayland", "linux"]
 categories = ["command-line-utilities", "multimedia::audio"]
 
@@ -114,3 +113,4 @@ nix = { version = "0.29", features = ["signal", "poll"] }
 
 [dev-dependencies]
 tempfile = "3.23.0"
+env_logger = "0.11"

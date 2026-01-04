@@ -19,6 +19,7 @@ fn get_engine() -> std::sync::MutexGuard<'static, WhisperEngine> {
 }
 
 #[test]
+#[ignore] // Requires whisper model file at models/whisper-medium-q4_1.bin
 fn test_jfk_transcription() {
     let mut engine = get_engine();
 
@@ -41,6 +42,7 @@ fn test_jfk_transcription() {
 }
 
 #[test]
+#[ignore] // Requires whisper model file at models/whisper-medium-q4_1.bin
 fn test_prompt_product_names() {
     let mut engine = get_engine();
 

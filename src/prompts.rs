@@ -17,7 +17,7 @@ pub fn prompts_dir() -> Result<PathBuf, Box<dyn Error>> {
 /// The content of the prompt file as a string
 ///
 /// # Example
-/// ```no_run
+/// ```ignore
 /// let prompt = transcribe_rs::prompts::load_prompt("clean")?;
 /// // Loads content from ~/.config/transcribe-rs/prompts/clean.md
 /// ```

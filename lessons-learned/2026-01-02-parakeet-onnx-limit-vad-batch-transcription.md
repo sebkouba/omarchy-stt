@@ -135,7 +135,7 @@ Add `WorkingDirectory` to systemd service:
 
 ```ini
 [Service]
-WorkingDirectory=/home/seb/code/cloned/transcribe-rs-v2
+WorkingDirectory=~/transcribe-rs-v2
 ExecStart=%h/code/cloned/transcribe-rs-v2/builds/current/watch-daemon
 ```
 
@@ -242,8 +242,8 @@ Added to `~/.config/transcribe-rs/config.toml`:
 ```toml
 [watch]
 enabled = true
-watch_dir = "/home/seb/Dropbox/Apps/RecUp App"
-output_dir = "/home/seb/Documents/Transcriptions"
+watch_dir = "~/Dropbox/Apps/RecUp App"
+output_dir = "~/Documents/Transcriptions"
 extensions = ["wav", "m4a", "mp3", "ogg", "flac", "webm"]
 debounce_ms = 1000
 scan_existing = true
@@ -260,7 +260,7 @@ After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/seb/code/cloned/transcribe-rs-v2
+WorkingDirectory=~/transcribe-rs-v2
 ExecStart=%h/code/cloned/transcribe-rs-v2/builds/current/watch-daemon
 Restart=always
 Nice=19
@@ -353,10 +353,10 @@ None - implementation is complete and working in production.
 ## Related Files
 
 **Core implementation:**
-- `/home/seb/code/cloned/transcribe-rs-v2/src/bin/transcribe-batch.rs` - On-demand batch transcription
-- `/home/seb/code/cloned/transcribe-rs-v2/src/bin/watch-daemon.rs` - File watcher daemon
-- `/home/seb/code/cloned/transcribe-rs-v2/src/vad.rs` - VAD integration (Silero)
-- `/home/seb/code/cloned/transcribe-rs-v2/src/file_watcher.rs` - File watching utilities
+- `~/transcribe-rs-v2/src/bin/transcribe-batch.rs` - On-demand batch transcription
+- `~/transcribe-rs-v2/src/bin/watch-daemon.rs` - File watcher daemon
+- `~/transcribe-rs-v2/src/vad.rs` - VAD integration (Silero)
+- `~/transcribe-rs-v2/src/file_watcher.rs` - File watching utilities
 
 **Configuration:**
 - `~/.config/transcribe-rs/config.toml` - Watch settings

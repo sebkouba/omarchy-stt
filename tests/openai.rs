@@ -6,6 +6,7 @@ use transcribe_rs::{
 };
 
 #[tokio::test]
+#[ignore] // Requires OPENAI_API_KEY environment variable
 async fn test_dots_transcription() {
     let engine = openai::default_engine();
 

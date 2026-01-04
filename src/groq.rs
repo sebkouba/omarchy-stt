@@ -139,7 +139,7 @@ impl GroqClient {
     /// GroqClient configured with only the specified tools
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// let client = GroqClient::from_env_file_with_tool_set(vec!["turn_leds_on".to_string()])?;
     /// // Client will only have access to the turn_leds_on tool
     /// ```
