@@ -17,6 +17,50 @@ Everything runs locally on your machine. No internet required. No cloud APIs. Yo
 
 ---
 
+## Usage Modes
+
+> **Status:** Work in progress, but daily-driven. Core functionality is stable.
+
+### Interaction Patterns
+
+**Push-to-Talk (Standard)**
+- Press and hold hotkey → speak → release
+- Text appears in active window
+- Perfect for quick dictation bursts
+
+**Long-Running Dictation (Chat Mode)**
+- Press hotkey once to start continuous dictation
+- Tap **Enter** to submit current text → pastes → presses Enter → immediately starts next dictation
+- Ideal for long conversations (Discord, Slack, messaging)
+- Keep dictating without re-pressing hotkey
+
+**Quick-Submit**
+- Press hotkey once to start
+- Tap **Windows/Super key** to submit → pastes → presses Enter → ends dictation
+- Fast workflow for single messages
+
+**Cancel Anytime**
+- Press **Escape** to cancel current dictation
+
+### Processing Modes
+
+**Local Mode (Default)**
+- 100% offline transcription
+- Fast, private, no API calls
+- Good accuracy out of the box
+
+**LLM Correction Mode**
+- Transcription + grammar/formatting cleanup via Groq API
+- Fixes punctuation, capitalization, common errors
+- Requires API key (see config)
+
+**Tool Calling Mode** *(experimental)*
+- Voice commands that trigger actions
+- "Send this email", "Create reminder", etc.
+- Requires tool definitions (see docs)
+
+---
+
 ## Quick Start
 
 **1. Install dependencies:**
