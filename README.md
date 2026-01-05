@@ -13,7 +13,7 @@ Press hotkey → speak → release → text appears in your active window. Fast,
 
 Talk to your computer. Your words appear wherever your cursor is—terminal, browser, editor, anywhere.
 
-Everything runs locally on your machine. No internet required. No cloud APIs. Your voice never leaves your computer.
+Transcription runs locally on your machine. No internet required. No cloud APIs. Your voice never leaves your computer. If you want a custom dictionary and corrections, you can use a simple algorithm locally or Groq for high speed LLM corrections of dictation.
 
 ---
 
@@ -169,6 +169,23 @@ sudo apt install ffmpeg wl-clipboard ydotool
 
 ---
 
+## Privacy & Clipboard Management
+
+**Clipboard History Protection:**
+This app uses the `--sensitive` flag when copying dictated text to the clipboard. If you're running a clipboard manager like **cliphist** (v2.0+), dictations are automatically excluded from your clipboard history.
+
+**Why this matters:**
+- Dictations might contain passwords, personal info, or sensitive content
+- The sensitive flag prevents this content from being stored in clipboard history
+- Your dictated text appears in your target app but doesn't pollute your clipboard manager
+
+**Compatibility:**
+- Works with cliphist v2.0+ (2024+)
+- Other clipboard managers may respect this flag (check their docs)
+- If your clipboard manager doesn't support `--sensitive`, dictations will appear in history (but still work normally)
+
+---
+
 ## Configuration
 
 Config lives at `~/.config/transcribe-rs/config.toml` (created by installer).
@@ -220,24 +237,7 @@ sudo systemctl enable --now ydotool
 **Other issues:**
 Run `./install.sh` again - it checks all dependencies.
 
-See [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more help.
 
----
-
-## Project Structure
-
-```
-omarchy-stt/
-├── README.md           ← You are here
-├── FEATURES.md         ← Local vs LLM vs Tools modes
-├── install.sh          ← Interactive setup script
-├── docs/               ← Detailed documentation
-│   ├── QUICKSTART.md   ← Hands-on walkthrough
-│   ├── DAEMON.md       ← Daemon architecture
-│   ├── TROUBLESHOOTING.md
-│   └── ...
-└── src/                ← Rust source code
-```
 
 ---
 
@@ -272,22 +272,12 @@ A: Should work! Main functionality is compositor-agnostic. Terminal detection us
 **Q: Why not use cloud APIs (OpenAI, Google, etc.)?**
 A: Privacy, cost, latency. Local is instant, free, and your voice stays on your machine.
 
-**Q: Can I use this as a library in my Rust project?**
-A: Yes! The core transcription engine is a library. See [docs/LIBRARY.md](docs/LIBRARY.md).
-
-**Q: What's the difference between transcribe-rs and omarchy-stt?**
-A: This is a fork/evolution of the original transcribe-rs library with added daemon architecture, hotkey support, and desktop integration.
 
 ---
 
 ## Contributing
 
-Contributions welcome! Areas for improvement:
-- Multi-compositor support (Sway, River, KDE)
-- X11 support
-- macOS/Windows ports
-- Wake word detection
-- Language selection UI
+Contributions welcome! 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -297,8 +287,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - **[Ilya Stupakov](https://github.com/cjpais/transcribe-rs)** - Original transcribe-rs library
 - **NVIDIA** - Parakeet model
-- **[istupakov](https://github.com/istupakov/onnx-asr)** - ONNX Parakeet implementation
-- **[whisper.cpp](https://github.com/ggerganov/whisper.cpp)** - Whisper implementation
+- **[istupakov](https://github.com/istupakov/onnx-asr)** - 
 
 ---
 
