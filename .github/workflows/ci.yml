@@ -13,27 +13,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libleptonica-dev libtesseract-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libleptonica-dev libtesseract-dev libvulkan-dev
+          # Create stub glslc for Vulkan build (CI doesn't need actual shader compilation)
+          echo '#!/bin/bash' | sudo tee /usr/local/bin/glslc
+          echo 'exit 0' | sudo tee -a /usr/local/bin/glslc
+          sudo chmod +x /usr/local/bin/glslc
 
       - uses: dtolnay/rust-toolchain@stable
 
       - run: cargo check --all-targets
-        env:
-          WHISPER_DONT_GENERATE_BINDINGS: 1
-          WHISPER_NO_METAL: 1
-          WHISPER_NO_VULKAN: 1
       - run: cargo clippy --all-targets -- -D warnings
-        env:
-          WHISPER_DONT_GENERATE_BINDINGS: 1
-          WHISPER_NO_METAL: 1
-          WHISPER_NO_VULKAN: 1
       - run: cargo test --lib
-        env:
-          WHISPER_DONT_GENERATE_BINDINGS: 1
-          WHISPER_NO_METAL: 1
-          WHISPER_NO_VULKAN: 1
       - run: cargo test --test hotkey_state --test hotkey_integration
-        env:
-          WHISPER_DONT_GENERATE_BINDINGS: 1
-          WHISPER_NO_METAL: 1
-          WHISPER_NO_VULKAN: 1
