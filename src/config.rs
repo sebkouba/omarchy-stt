@@ -213,7 +213,6 @@ pub struct HotkeyBinding {
     pub gui: bool,
 }
 
-
 impl Default for AudioConfig {
     fn default() -> Self {
         AudioConfig {

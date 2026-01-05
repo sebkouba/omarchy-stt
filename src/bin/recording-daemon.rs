@@ -91,7 +91,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //   RECORDING_MICROPHONE="alsa_input.usb-..."  recording-daemon
     //
     // Use "default" to let PulseAudio choose the default input device
-    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
+    let microphone =
+        std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
 
     // Get buffer size from environment or use default
     let buffer_seconds = std::env::var("RECORDING_BUFFER_SIZE")
@@ -317,7 +318,8 @@ fn respawn_ffmpeg(state: &SharedState) -> Result<(), Box<dyn std::error::Error>>
 
     // Get microphone from environment or use PulseAudio default
     // (See main() for documentation on how to find and configure microphones)
-    let microphone = std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
+    let microphone =
+        std::env::var("RECORDING_MICROPHONE").unwrap_or_else(|_| "default".to_string());
 
     let child = Command::new("ffmpeg")
         .args([

@@ -102,7 +102,10 @@ fn update_service_file(microphone: &str) -> Result<(), String> {
 
     for line in content.lines() {
         if line.contains("RECORDING_MICROPHONE=") {
-            new_lines.push(format!("Environment=\"RECORDING_MICROPHONE={}\"", microphone));
+            new_lines.push(format!(
+                "Environment=\"RECORDING_MICROPHONE={}\"",
+                microphone
+            ));
             found = true;
         } else {
             new_lines.push(line.to_string());
@@ -116,7 +119,10 @@ fn update_service_file(microphone: &str) -> Result<(), String> {
         for line in content.lines() {
             new_lines.push(line.to_string());
             if line.trim() == "[Service]" && !inserted {
-                new_lines.push(format!("Environment=\"RECORDING_MICROPHONE={}\"", microphone));
+                new_lines.push(format!(
+                    "Environment=\"RECORDING_MICROPHONE={}\"",
+                    microphone
+                ));
                 inserted = true;
             }
         }
