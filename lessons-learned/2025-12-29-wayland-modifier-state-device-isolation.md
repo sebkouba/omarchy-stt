@@ -330,11 +330,11 @@ Without this, killing the daemon leaves keyboard grabbed (system unusable).
 
 ## Related Files
 
-- `~/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Main daemon (1030 lines)
-- `~/transcribe-rs-v2/lessons-learned/hotkey-daemon-keyboard-issues.md` - Documents both solved (Enter debounce) and unsolved (modifier leak) issues
-- `~/transcribe-rs-v2/lessons-learned/evdev-keyboard-grab.md` - Original evdev grab/ungrab lessons
-- `~/transcribe-rs-v2/prompts/kb-debounce-release.md` - Original problem statement
-- `~/transcribe-rs-v2/docs/testing-plan.md` - Phased testing strategy for refactoring
+- `~/omarchy-stt/src/bin/hotkey-daemon.rs` - Main daemon (1030 lines)
+- `~/omarchy-stt/lessons-learned/hotkey-daemon-keyboard-issues.md` - Documents both solved (Enter debounce) and unsolved (modifier leak) issues
+- `~/omarchy-stt/lessons-learned/evdev-keyboard-grab.md` - Original evdev grab/ungrab lessons
+- `~/omarchy-stt/prompts/kb-debounce-release.md` - Original problem statement
+- `~/omarchy-stt/docs/testing-plan.md` - Phased testing strategy for refactoring
 
 ## Related Lessons Learned
 

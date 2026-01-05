@@ -20,8 +20,8 @@ Make sure all paths in the JSON are absolute and correct:
 
 ```json
 {
-  "command": "/path/to/transcribe-rs-v2/tools/claude_worktree_wrapper.sh",
-  "args": ["/path/to/transcribe-rs-v2", ...]
+  "command": "/path/to/omarchy-stt/tools/claude_worktree_wrapper.sh",
+  "args": ["/path/to/omarchy-stt", ...]
 }
 ```
 
@@ -63,7 +63,7 @@ Examples of what to say:
 
 ### Multi-Project Commands (for multi-project tool)
 - **"create worktree in transcribe for adding feature X"**
-  - project_path: "/path/to/transcribe-rs-v2"
+  - project_path: "/path/to/omarchy-stt"
 
 - **"new branch in transcribe v1 for fixing bug Y"**
   - project_path: "/path/to/transcribe-rs"

@@ -3,8 +3,8 @@
 ## Problem
 The current PTT (push-to-talk) keybinding uses `bind` for start and `bindr` for stop:
 ```ini
-bind = SUPER SHIFT CTRL ALT, Q, exec, /path/to/transcribe-rs-v2/ptt-test.sh start
-bindr = SUPER SHIFT CTRL ALT, Q, exec, /path/to/transcribe-rs-v2/ptt-test.sh stop
+bind = SUPER SHIFT CTRL ALT, Q, exec, /path/to/omarchy-stt/ptt-test.sh start
+bindr = SUPER SHIFT CTRL ALT, Q, exec, /path/to/omarchy-stt/ptt-test.sh stop
 ```
 
 This fails when modifiers are released before the Q key - the stop command doesn't trigger.
@@ -19,10 +19,10 @@ Edit `~/.config/hypr/bindings.conf`:
 
 ```ini
 # Start recording when SUPER+SHIFT+CTRL+ALT+Q is pressed
-bind = SUPER SHIFT CTRL ALT, Q, exec, /path/to/transcribe-rs-v2/ptt-test.sh start
+bind = SUPER SHIFT CTRL ALT, Q, exec, /path/to/omarchy-stt/ptt-test.sh start
 
 # Stop recording when Q is released (regardless of modifiers)
-bindri = , Q, exec, /path/to/transcribe-rs-v2/ptt-test.sh stop
+bindri = , Q, exec, /path/to/omarchy-stt/ptt-test.sh stop
 ```
 
 ### 2. Make the script idempotent

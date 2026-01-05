@@ -13,7 +13,7 @@ Path: /absolute/path/to/project
 ## Projects
 
 [transcribe]: Voice dictation system with Parakeet/Whisper engines
-Path: ~/code/transcribe-rs-v2
+Path: ~/omarchy-stt
 ---
 
 [transcribe-v1]: Original voice dictation system (legacy)

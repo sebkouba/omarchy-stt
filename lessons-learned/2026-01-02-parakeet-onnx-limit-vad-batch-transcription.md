@@ -135,7 +135,7 @@ Add `WorkingDirectory` to systemd service:
 
 ```ini
 [Service]
-WorkingDirectory=~/transcribe-rs-v2
+WorkingDirectory=~/omarchy-stt
 ExecStart=%h/code/cloned/transcribe-rs-v2/builds/current/watch-daemon
 ```
 
@@ -260,7 +260,7 @@ After=default.target
 
 [Service]
 Type=simple
-WorkingDirectory=~/transcribe-rs-v2
+WorkingDirectory=~/omarchy-stt
 ExecStart=%h/code/cloned/transcribe-rs-v2/builds/current/watch-daemon
 Restart=always
 Nice=19
@@ -353,10 +353,10 @@ None - implementation is complete and working in production.
 ## Related Files
 
 **Core implementation:**
-- `~/transcribe-rs-v2/src/bin/transcribe-batch.rs` - On-demand batch transcription
-- `~/transcribe-rs-v2/src/bin/watch-daemon.rs` - File watcher daemon
-- `~/transcribe-rs-v2/src/vad.rs` - VAD integration (Silero)
-- `~/transcribe-rs-v2/src/file_watcher.rs` - File watching utilities
+- `~/omarchy-stt/src/bin/transcribe-batch.rs` - On-demand batch transcription
+- `~/omarchy-stt/src/bin/watch-daemon.rs` - File watcher daemon
+- `~/omarchy-stt/src/vad.rs` - VAD integration (Silero)
+- `~/omarchy-stt/src/file_watcher.rs` - File watching utilities
 
 **Configuration:**
 - `~/.config/transcribe-rs/config.toml` - Watch settings

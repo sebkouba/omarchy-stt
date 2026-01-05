@@ -80,8 +80,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/transcribe-rs-v2
-ExecStart=%h/transcribe-rs-v2/target/release/transcribe-daemon
+WorkingDirectory=%h/omarchy-stt
+ExecStart=%h/omarchy-stt/target/release/transcribe-daemon
 Restart=on-failure
 RestartSec=5s
 

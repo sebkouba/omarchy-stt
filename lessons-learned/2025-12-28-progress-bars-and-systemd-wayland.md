@@ -242,13 +242,13 @@ stop_flag.store(true, Ordering::Relaxed);
 
 ### Modified in this session:
 - `~/.config/systemd/user/hotkey-daemon.service` - Added Wayland environment variables
-- `~/transcribe-rs-v2/eww/eww.yuck` - Added loading and api widgets
-- `~/transcribe-rs-v2/eww/eww.scss` - Added `.loading-bar` and `.api-bar` styles
-- `~/transcribe-rs-v2/src/eww_widget.rs` - Added show/hide/set_progress for loading and API widgets
-- `~/transcribe-rs-v2/src/transcription_timing.rs` - New module for timing estimation
-- `~/transcribe-rs-v2/src/recording.rs` - Changed return type to RecordingResult
-- `~/transcribe-rs-v2/src/bin/hotkey-daemon.rs` - Wired in progress animations
-- `~/transcribe-rs-v2/src/bin/cli.rs` - Updated to use RecordingResult
+- `~/omarchy-stt/eww/eww.yuck` - Added loading and api widgets
+- `~/omarchy-stt/eww/eww.scss` - Added `.loading-bar` and `.api-bar` styles
+- `~/omarchy-stt/src/eww_widget.rs` - Added show/hide/set_progress for loading and API widgets
+- `~/omarchy-stt/src/transcription_timing.rs` - New module for timing estimation
+- `~/omarchy-stt/src/recording.rs` - Changed return type to RecordingResult
+- `~/omarchy-stt/src/bin/hotkey-daemon.rs` - Wired in progress animations
+- `~/omarchy-stt/src/bin/cli.rs` - Updated to use RecordingResult
 
 ### Related lessons:
 - `lessons-learned/eww-recording-widget.md` - Original green bar implementation

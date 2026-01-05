@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**transcribe-rs-v2** is a Rust-based push-to-talk dictation system for Linux/Wayland with four architectural layers:
+**omarchy-stt (formerly transcribe-rs-v2) is a Rust-based push-to-talk dictation system for Linux/Wayland with four architectural layers:
 
 1. **Core Library** (`src/lib.rs`, `src/engines/`, `src/audio.rs`) - Reusable transcription API with trait-based engine abstraction
 2. **Recording Daemon** (`src/bin/recording-daemon.rs`) - Continuous audio capture to circular buffer for zero-latency recording
@@ -329,8 +329,8 @@ sudo pacman -S wl-clipboard ydotool ffmpeg
 
    **Option B: Hyprland keybindings** in `~/.config/hypr/hyprland.conf`:
    ```ini
-   bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/builds/current/transcribe start
-   bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/builds/current/transcribe stop
+   bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/omarchy-stt/builds/current/transcribe start
+   bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/omarchy-stt/builds/current/transcribe stop
    ```
 
 ### File Locations

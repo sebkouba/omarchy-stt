@@ -119,8 +119,8 @@ cargo build --release
 For Hyprland (`~/.config/hypr/hyprland.conf`):
 ```ini
 # Push-to-talk: Hold Super+Shift+Ctrl+Alt+E to record
-bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe start
-bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/transcribe-rs-v2/target/release/transcribe stop
+bind = SUPER SHIFT CTRL ALT, E, exec, /path/to/omarchy-stt/target/release/transcribe start
+bindr = SUPER SHIFT CTRL ALT, E, exec, /path/to/omarchy-stt/target/release/transcribe stop
 ```
 
 4. **Test the workflow:**

@@ -24,8 +24,8 @@ sudo systemctl enable --now ydotool
 ## 1. Build
 
 ```bash
-git clone https://github.com/sebkouba/transcribe-rs-v2
-cd transcribe-rs-v2
+git clone https://github.com/sebkouba/omarchy-stt
+cd omarchy-stt
 cargo build --release
 ```
 
@@ -84,7 +84,7 @@ After=sound.target
 Type=simple
 # IMPORTANT: Replace with YOUR microphone from step 3
 Environment="RECORDING_MICROPHONE=alsa_input.usb-Blue_Yeti-00.analog-stereo"
-ExecStart=%h/transcribe-rs-v2/target/release/recording-daemon
+ExecStart=%h/omarchy-stt/target/release/recording-daemon
 Restart=always
 RestartSec=3
 
@@ -100,8 +100,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/transcribe-rs-v2
-ExecStart=%h/transcribe-rs-v2/target/release/transcribe-daemon
+WorkingDirectory=%h/omarchy-stt
+ExecStart=%h/omarchy-stt/target/release/transcribe-daemon
 Restart=on-failure
 
 [Install]
@@ -119,8 +119,8 @@ systemctl --user enable --now recording-daemon transcribe-daemon
 Add to `~/.config/hypr/hyprland.conf`:
 ```ini
 # Push-to-talk: hold to record, release to transcribe
-bind = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/target/release/transcribe start
-bindr = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/target/release/transcribe stop
+bind = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/target/release/transcribe start
+bindr = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/target/release/transcribe stop
 ```
 
 Reload: `hyprctl reload`

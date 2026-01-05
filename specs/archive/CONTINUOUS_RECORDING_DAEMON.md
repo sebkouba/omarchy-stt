@@ -305,8 +305,8 @@ After=network.target sound.target pulseaudio.service
 
 [Service]
 Type=simple
-ExecStart=~/transcribe-rs-v2/target/release/recording-daemon
-WorkingDirectory=~/transcribe-rs-v2
+ExecStart=~/omarchy-stt/target/release/recording-daemon
+WorkingDirectory=~/omarchy-stt
 Restart=always
 RestartSec=5s
 

@@ -4,8 +4,8 @@ version = "0.1.4"
 edition = "2021"
 description = "Fast, local push-to-talk dictation system for Linux/Wayland with Parakeet and Whisper engines"
 license = "MIT"
-repository = "https://github.com/sebkouba/transcribe-rs-v2"
-homepage = "https://github.com/sebkouba/transcribe-rs-v2"
+repository = "https://github.com/sebkouba/omarchy-stt"
+homepage = "https://github.com/sebkouba/omarchy-stt"
 keywords = ["transcription", "speech-to-text", "dictation", "wayland", "linux"]
 categories = ["command-line-utilities", "multimedia::audio"]
 

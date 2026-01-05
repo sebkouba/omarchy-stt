@@ -305,8 +305,8 @@ bind = SUPER SHIFT CTRL ALT, Q, exec, ~/transcribe-rs/ptt-test.sh start
 bindri = , Q, exec, ~/transcribe-rs/ptt-test.sh stop
 
 # New (when tested)
-bind = SUPER SHIFT CTRL ALT, Q, exec, ~/transcribe-rs-v2/target/release/transcribe record start
-bindri = , Q, exec, ~/transcribe-rs-v2/target/release/transcribe record stop
+bind = SUPER SHIFT CTRL ALT, Q, exec, ~/omarchy-stt/target/release/transcribe record start
+bindri = , Q, exec, ~/omarchy-stt/target/release/transcribe record stop
 ```
 
 ### Step 4: Run both for a while

@@ -930,12 +930,12 @@ cargo build --release --bin transcribe
 **Action:** Update your Hyprland config:
 ```ini
 # Old (bash scripts)
-bind = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/ptt-test.sh start
-bindr = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/ptt-test.sh stop
+bind = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/ptt-test.sh start
+bindr = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/ptt-test.sh stop
 
 # New (Rust CLI)
-bind = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/target/release/transcribe start
-bindr = SUPER SHIFT CTRL ALT, E, exec, ~/transcribe-rs-v2/target/release/transcribe stop
+bind = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/target/release/transcribe start
+bindr = SUPER SHIFT CTRL ALT, E, exec, ~/omarchy-stt/target/release/transcribe stop
 ```
 
 Reload Hyprland config:
@@ -1009,7 +1009,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/transcribe-daemon
-WorkingDirectory=~/transcribe-rs-v2
+WorkingDirectory=~/omarchy-stt
 Restart=on-failure
 RestartSec=5s
 
