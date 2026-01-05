@@ -5,3 +5,7 @@ models/
 .build_number
 .env
 .beads/
+.claude/agents/
+.claude/scripts/
+.claude/settings.local.json
+.claude/skills/beads/
