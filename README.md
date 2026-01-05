@@ -4,8 +4,6 @@
 
 Press hotkey → speak → release → text appears in your active window. Fast, accurate, 100% local.
 
-![Demo](docs/demo.gif)
-*(Press Super+Shift+Space, say "Hello world", release, text appears)*
 
 ---
 
@@ -129,7 +127,7 @@ systemctl --user start recording-daemon transcribe-daemon hotkey-daemon
 ### Core (works out of the box)
 - ⚡ **Fast** - Zero-latency recording, near-instant transcription
 - 🔒 **Private** - 100% local processing, no cloud
-- 🎯 **Accurate** - Powered by Parakeet (NVIDIA NeMo) or Whisper
+- 🎯 **Accurate** - Powered by Parakeet (NVIDIA NeMo)
 - 📋 **Auto-paste** - Types text directly into active window
 - 🖥️ **Smart** - Detects terminals, uses Ctrl+Shift+V vs Ctrl+V
 
@@ -180,7 +178,7 @@ This app uses the `--sensitive` flag when copying dictated text to the clipboard
 - Your dictated text appears in your target app but doesn't pollute your clipboard manager
 
 **Compatibility:**
-- Works with cliphist v2.0+ (2024+)
+- Works with cliphist v2.0+ 
 - Other clipboard managers may respect this flag (check their docs)
 - If your clipboard manager doesn't support `--sensitive`, dictations will appear in history (but still work normally)
 
