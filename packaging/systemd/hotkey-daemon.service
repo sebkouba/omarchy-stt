@@ -1,0 +1,17 @@
+[Unit]
+Description=Omarchy STT Hotkey Daemon
+Documentation=https://github.com/yourusername/transcribe-rs-v2
+After=recording-daemon.service transcribe-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hotkey-daemon
+Restart=on-failure
+RestartSec=5
+
+# Resource limits
+MemoryMax=50M
+CPUQuota=5%
+
+[Install]
+WantedBy=default.target

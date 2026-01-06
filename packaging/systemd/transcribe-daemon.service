@@ -1,0 +1,17 @@
+[Unit]
+Description=Omarchy STT Transcription Daemon
+Documentation=https://github.com/yourusername/transcribe-rs-v2
+After=recording-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/transcribe-daemon
+Restart=on-failure
+RestartSec=5
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=100%
+
+[Install]
+WantedBy=default.target

@@ -9,3 +9,16 @@ models/
 .claude/scripts/
 .claude/settings.local.json
 .claude/skills/beads/
+
+# AUR packaging build artifacts
+/packaging/src/
+/packaging/pkg/
+/packaging/*.pkg.tar.zst
+/packaging/*.pkg.tar.zst.sig
+/packaging/*.tar.gz
+/packaging/PKGBUILD.local
+/packaging/PKGBUILD.test
+/packaging/.SRCINFO.local
+
+# Release artifacts
+/releases/

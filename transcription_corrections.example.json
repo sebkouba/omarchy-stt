@@ -1,0 +1,30 @@
+{
+  "rules": [
+    {
+      "from": "see plus plus",
+      "to": "C++",
+      "case_sensitive": false,
+      "fuzzy_matching": true,
+      "similarity_threshold": 0.85,
+      "algorithm": "Levenshtein"
+    },
+    {
+      "from": "python",
+      "to": "Python",
+      "case_sensitive": false,
+      "fuzzy_matching": false
+    },
+    {
+      "from": "javascript",
+      "to": "JavaScript",
+      "case_sensitive": false,
+      "fuzzy_matching": false
+    },
+    {
+      "from": "rust",
+      "to": "Rust",
+      "case_sensitive": false,
+      "fuzzy_matching": false
+    }
+  ]
+}
