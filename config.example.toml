@@ -1,177 +1,98 @@
-# transcribe-rs Configuration Example
-#
-# Copy this file to ~/.config/transcribe-rs/config.toml
-# Or run: transcribe config init
+# Example configuration for omarchy-stt
+# Copy to ~/.config/transcribe-rs/config.toml and customize
 
-# ============================================================================
-# Audio Recording Configuration
-# ============================================================================
 [audio]
+# Your microphone device name (use 'list-microphones' to find it)
+# Example: "alsa_input.usb-Blue_Microphones_Yeti_Stereo_Microphone_REV8-00.analog-stereo"
+microphone = "YOUR_MICROPHONE_DEVICE_HERE"
 
-# Microphone source for recording
-#
-# Options:
-#   - "default" - Use system default microphone (recommended)
-#   - Device name - Specific PulseAudio source (e.g., "alsa_input.usb-...")
-#   - Device index - Number from `pactl list sources short`
-#
-# To find your microphone:
-#   pactl list sources short
-#
-# Example outputs:
-#   0  alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
-#   1  alsa_input.pci-0000_00_1f.3.analog-stereo
-#   2  alsa_input.usb-Logitech_Webcam_C922-02.analog-stereo
-#
-# Use the full device name or index number:
-#   microphone = "alsa_input.usb-Logitech_Webcam_C922-02.analog-stereo"
-#   microphone = "2"
-microphone = "default"
-
-# Audio sample rate in Hz
-#
-# MUST be 16000 for current models (Parakeet and Whisper require 16kHz)
-# Do not change unless you know your model supports other rates
+# Audio sample rate (16000 Hz required by models)
 sample_rate = 16000
 
-# Where to save the current/last recording
-# This file is overwritten each recording
+# Temporary recording file location
 recording_path = "/tmp/ptt_current.wav"
 
-# Where to store the recording process PID
-# Used to manage the ffmpeg recording process
+# Recording state file (stores buffer position)
 recording_pid_file = "/tmp/ptt_recording.pid"
 
-# Debug log file location
-# View with: tail -f /tmp/ptt_rust_debug.log
+# Debug log file
 log_file = "/tmp/ptt_rust_debug.log"
 
-
-# ============================================================================
-# Transcription Model Configuration
-# ============================================================================
 [model]
+# Path to model directory
+# For AUR package install: Use absolute path below
+# For dev setup: Use relative path like "models/parakeet-tdt-0.6b-v3-int8"
+path = "/usr/share/omarchy-stt/models/parakeet-tdt-0.6b-v3-int8"
 
-# Path to the transcription model
-#
-# Relative paths are relative to where you run the daemon
-# Absolute paths are recommended for systemd services
-#
-# Examples:
-#   path = "models/parakeet-tdt-0.6b-v3-int8"  # Relative
-#   path = "/home/user/models/parakeet-tdt-0.6b-v3-int8"  # Absolute
-#   path = "~/models/parakeet-tdt-0.6b-v3-int8"  # Tilde NOT expanded (use absolute)
-#
-# Parakeet model download:
-#   mkdir -p models && cd models
-#   wget https://blob.handy.computer/parakeet-v3-int8.tar.gz
-#   tar -xzf parakeet-v3-int8.tar.gz
-#
-# Whisper model download:
-#   cd models
-#   wget https://blob.handy.computer/whisper-medium-q4_1.bin
-path = "models/parakeet-tdt-0.6b-v3-int8"
-
-# Transcription engine to use
-#
-# Options:
-#   - "parakeet" - NVIDIA NeMo Parakeet (recommended, faster)
-#   - "whisper"  - OpenAI Whisper (slower, better multilingual)
+# Transcription engine ("parakeet" or "whisper")
 engine = "parakeet"
 
-# Model quantization level (Parakeet only)
-#
-# Options:
-#   - "int8" - 8-bit quantization (faster, smaller, recommended)
-#   - "fp32" - 32-bit float (slower, larger, higher quality)
-#
-# Ignored for Whisper (model file determines quantization)
+# Quantization level ("int8" for speed, "fp32" for accuracy)
 quantization = "int8"
 
-
-# ============================================================================
-# Daemon Configuration
-# ============================================================================
 [daemon]
-
-# Unix socket path for daemon communication
-#
-# The CLI communicates with the daemon through this socket
-# Must be writable by your user
-#
-# Different from original transcribe-rs (/tmp/transcribe-rs.sock) to allow
-# both versions to run simultaneously during testing
+# Unix socket path for transcription daemon
 socket_path = "/tmp/transcribe-rs-v2.sock"
 
-
-# ============================================================================
-# Desktop Integration Configuration
-# ============================================================================
 [integration]
-
-# Automatically paste transcription into active window
-#
-# When true:
-#   - Transcription is copied to clipboard AND auto-pasted
-#   - Requires ydotool to be installed and running
-#
-# When false:
-#   - Transcription is only copied to clipboard
-#   - You must paste manually (Ctrl+V / Ctrl+Shift+V)
+# Automatically paste transcribed text to active window
 auto_paste = true
 
-# Add space after sentence-ending punctuation
-#
-# When true:
-#   "Hello world." → "Hello world. " (space added)
-#   Allows consecutive dictations to flow naturally
-#
-# When false:
-#   "Hello world." → "Hello world." (no space)
-#
-# Does NOT add space after commas or other punctuation
+# Restore original clipboard after pasting (prevents clipboard pollution)
+prevent_clipboard_pollution = true
+
+# Add space after sentence-ending punctuation (.!?) for natural flow
 add_space_after_punctuation = true
 
-# Terminal application class names
-#
-# Used to detect terminal windows for paste behavior:
-#   - Terminal: Uses Ctrl+Shift+V
-#   - Non-terminal: Uses Ctrl+V
-#
-# Detection via Hyprland: hyprctl activewindow -j
-#
-# To find your terminal's class:
-#   hyprctl activewindow -j | grep class
-#
-# Add your terminal if not listed:
+# Terminal applications (use Ctrl+Shift+V instead of Ctrl+V)
 terminal_apps = [
-    "alacritty",     # Alacritty
-    "kitty",         # Kitty
-    "wezterm",       # WezTerm
-    "foot",          # Foot
-    "terminal",      # Generic terminal
-    "konsole",       # KDE Konsole
-    "terminator",    # Terminator
-    "xterm",         # XTerm
-    "urxvt",         # rxvt-unicode
-    "st",            # Simple Terminal (st)
-    "code",          # VS Code integrated terminal
+    "alacritty",
+    "kitty",
+    "wezterm",
+    "foot",
+    "terminal",
+    "konsole",
+    "terminator",
+    "xterm",
+    "urxvt",
+    "st",
 ]
 
+[llm]
+# Enable LLM post-processing (requires GROQ_API_KEY environment variable)
+# Get free API key at: https://console.groq.com
+enabled = false
 
-# ============================================================================
-# Notes
-# ============================================================================
-#
-# After editing this file:
-#   1. Restart the daemon: systemctl --user restart transcribe-daemon
-#   2. Or kill and restart manually if running in foreground
-#
-# View current config:
-#   transcribe config show
-#
-# Validate setup:
-#   transcribe doctor
-#
-# Debug logs:
-#   tail -f /tmp/ptt_rust_debug.log
+# Groq model to use (fast and accurate)
+model = "moonshotai/kimi-k2-instruct-0905"
+
+# Maximum tool call iterations (safety limit)
+max_tool_calls = 5
+
+[hotkey]
+# Global hotkey configuration (requires XDG Desktop Portal)
+# Default: Super+Shift+Space
+
+# Modifier keys (combine multiple: ["Super", "Shift", "Control", "Alt"])
+modifiers = ["Super", "Shift"]
+
+# Main key (letters, numbers, or special keys like "Space", "Return", etc.)
+key = "Space"
+
+[logging]
+# Enable dictation logging for analysis (CSV format)
+# Files created in ~/.config/transcribe-rs/
+enable_logging = false
+
+# Log LLM corrections separately
+enable_llm_logging = false
+
+[transcription_corrections]
+# Path to fuzzy correction rules (optional)
+# See /usr/share/omarchy-stt/transcription_corrections.json.example
+# corrections_file = "~/.config/transcribe-rs/transcription_corrections.json"
+
+[tools]
+# Path to LLM tool definitions (optional, for voice commands)
+# See /usr/share/omarchy-stt/tools.json.example if available
+# tools_file = "~/.config/transcribe-rs/tools.json"

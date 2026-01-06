@@ -48,6 +48,7 @@ fi
 # Copy docs
 echo "Copying documentation..."
 cp README.md LICENSE "${RELEASE_DIR}/"
+cp packaging/SETUP.md "${RELEASE_DIR}/" 2>/dev/null || echo "Warning: SETUP.md not found"
 
 # Create tarball
 echo "Creating tarball..."
