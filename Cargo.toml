@@ -1,6 +1,6 @@
 [package]
 name = "transcribe-rs"
-version = "0.1.4"
+version = "0.1.1"
 edition = "2021"
 description = "Fast, local push-to-talk dictation system for Linux/Wayland with Parakeet and Whisper engines"
 license = "MIT"

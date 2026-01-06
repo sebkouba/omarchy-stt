@@ -56,43 +56,111 @@ terminal_apps = [
     "xterm",
     "urxvt",
     "st",
+    "code",
 ]
 
-[llm]
-# Enable LLM post-processing (requires GROQ_API_KEY environment variable)
-# Get free API key at: https://console.groq.com
-enabled = false
-
-# Groq model to use (fast and accurate)
-model = "moonshotai/kimi-k2-instruct-0905"
-
-# Maximum tool call iterations (safety limit)
-max_tool_calls = 5
-
-[hotkey]
-# Global hotkey configuration (requires XDG Desktop Portal)
-# Default: Super+Shift+Space
-
-# Modifier keys (combine multiple: ["Super", "Shift", "Control", "Alt"])
-modifiers = ["Super", "Shift"]
-
-# Main key (letters, numbers, or special keys like "Space", "Return", etc.)
-key = "Space"
-
-[logging]
-# Enable dictation logging for analysis (CSV format)
-# Files created in ~/.config/transcribe-rs/
-enable_logging = false
-
-# Log LLM corrections separately
-enable_llm_logging = false
-
+# Transcription corrections for fixing acoustic/phonetic errors
+# This runs BEFORE LLM processing and fixes speech-to-text mistakes
+# Example: "Sebastian Tuba" → "Sebastian Kouba", "Hay Q" → "HiQ"
 [transcription_corrections]
-# Path to fuzzy correction rules (optional)
-# See /usr/share/omarchy-stt/transcription_corrections.json.example
+enabled = false
+# Uncomment and set path to enable corrections:
 # corrections_file = "~/.config/transcribe-rs/transcription_corrections.json"
 
-[tools]
-# Path to LLM tool definitions (optional, for voice commands)
-# See /usr/share/omarchy-stt/tools.json.example if available
-# tools_file = "~/.config/transcribe-rs/tools.json"
+# Dictation logging for analysis (CSV format)
+[dictation_logging]
+enabled = false
+basic_log_enabled = false
+llm_log_enabled = false
+basic_log_path = "~/.config/transcribe-rs/dictation_log.csv"
+llm_log_path = "~/.config/transcribe-rs/llm_corrections_log.csv"
+
+# LLM post-processing configuration
+# Requires GROQ_API_KEY environment variable
+# Get free API key at: https://console.groq.com
+[llm]
+# Enable conversation history for multi-turn conversations
+conversation_history_enabled = false
+
+# List of prompts that should maintain conversation history
+# Only these prompts will remember context across dictations
+conversation_history_prompts = ["ask"]
+
+# Word that clears conversation history when spoken alone (case-insensitive, ignores punctuation)
+conversation_history_clear_word = "clear"
+
+# How long to keep conversation history (minutes)
+conversation_history_minutes = 5
+
+# Maximum number of conversation turns to remember
+conversation_max_turns = 10
+
+# Directory to store conversation history
+conversation_history_dir = "/tmp"
+
+# File chat - write Q&A to markdown files instead of clipboard
+file_chat_enabled = false
+file_chat_dir = "~/.config/transcribe-rs/chats"
+
+# Tool sets - named groups of tools that can be assigned to prompts
+# Define your own tools in ~/.config/transcribe-rs/tools.json
+[llm.tool_sets]
+none = []
+# Example tool set (customize based on your tools.json):
+# all = ["example_tool_1", "example_tool_2"]
+
+# Map prompts to tool sets
+# Determines which tools are available for which prompt types
+[llm.prompt_tool_mapping]
+# Example: "ask" prompt gets no tools (Q&A only)
+# ask = "none"
+# Example: "clean" prompt gets all tools (actions/commands)
+# clean = "all"
+
+# Watch directory for automatic transcription
+# Automatically transcribes audio files dropped in a directory
+[watch]
+enabled = false  # Set to true to enable file watching
+watch_dir = "/path/to/watch/directory"
+output_dir = "/path/to/output/directory"
+extensions = ["wav", "m4a", "mp3", "ogg", "flac", "webm"]
+debounce_ms = 1000
+
+# Hotkey daemon configuration
+# Supports multiple key bindings with different behaviors
+[hotkey]
+# Modifier keys used for all hotkey bindings
+# Combine multiple: ["super", "shift", "ctrl", "alt"]
+modifiers = ["super", "shift", "ctrl", "alt"]
+
+# Time threshold for tap vs hold (milliseconds)
+tap_threshold_ms = 700
+
+# Hotkey bindings - each key can have different options
+# Add multiple [[hotkey.bindings]] sections for different keys
+
+# Example: Raw transcription (no LLM processing)
+[[hotkey.bindings]]
+key = "e"
+# No prompt = raw transcription
+
+# Example: LLM cleanup with tools
+# [[hotkey.bindings]]
+# key = "q"
+# prompt = "clean"  # LLM cleanup + tools
+
+# Example: Q&A mode (conversation)
+# [[hotkey.bindings]]
+# key = "w"
+# prompt = "ask"  # Q&A mode with conversation history
+
+# Example: OCR mode (capture screen for context)
+# [[hotkey.bindings]]
+# key = "r"
+# prompt = "ocr"
+# ocr = true  # Capture screen for context
+
+# Example: GUI conversation mode
+# [[hotkey.bindings]]
+# key = "t"
+# gui = true  # GUI conversation interface
