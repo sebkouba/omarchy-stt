@@ -24,7 +24,7 @@
        :orientation "h"
        :halign "start"
     (box :class "level-bar"
-         :style "min-width: ${audio_level == "" ? 0 : audio_level * 2}px;"
+         :style "min-width: ${audio_level == "" ? 0 : audio_level > 25 ? 200 : audio_level * 20}px;"
          :halign "start")))
 
 ; Loading indicator widget - blue progress bar for transcription

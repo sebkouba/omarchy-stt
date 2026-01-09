@@ -12,13 +12,15 @@ use std::error::Error;
 use crate::config::VadConfig;
 
 /// Default threshold for speech detection (0.0-1.0)
-pub const DEFAULT_THRESHOLD: f32 = 0.5;
+/// Lower = less likely to cut off speech
+pub const DEFAULT_THRESHOLD: f32 = 0.3;
 
 /// Default minimum speech duration in milliseconds
 pub const DEFAULT_MIN_SPEECH_MS: u32 = 250;
 
 /// Default minimum silence duration in milliseconds
-pub const DEFAULT_MIN_SILENCE_MS: u32 = 100;
+/// Higher = requires longer silence before splitting segments
+pub const DEFAULT_MIN_SILENCE_MS: u32 = 300;
 
 /// Default audio duration threshold in seconds (only apply VAD for longer audio)
 pub const DEFAULT_MIN_DURATION_SECONDS: f32 = 20.0;

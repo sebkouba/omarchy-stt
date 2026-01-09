@@ -422,10 +422,10 @@ impl Default for VadConfig {
     fn default() -> Self {
         VadConfig {
             enabled: true,
-            threshold: 0.5,
+            threshold: 0.3,  // Lower = less likely to cut off speech (was 0.5)
             min_duration_seconds: 30.0,
             min_speech_duration_ms: 250,
-            min_silence_duration_ms: 100,
+            min_silence_duration_ms: 300,  // Higher = requires longer silence before splitting (was 100)
         }
     }
 }
