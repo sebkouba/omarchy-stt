@@ -27,6 +27,8 @@ pub struct Config {
     pub hotkey: HotkeyConfig,
     #[serde(default)]
     pub vad: VadConfig,
+    #[serde(default)]
+    pub transcription: TranscriptionConfig,
 }
 
 /// Audio recording configuration
@@ -196,6 +198,17 @@ pub struct VadConfig {
     pub min_speech_duration_ms: i32,
     /// Minimum silence duration in milliseconds (to split segments)
     pub min_silence_duration_ms: i32,
+}
+
+/// Transcription provider configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptionConfig {
+    /// Transcription provider: "local" (uses transcribe-daemon) or "groq" (uses Groq API)
+    pub provider: String,
+    /// Groq model to use (whisper-large-v3, whisper-large-v3-turbo, distil-whisper-large-v3-en)
+    pub groq_model: String,
+    /// Language hint for Groq (ISO-639-1 code like "en", "de"). Empty for auto-detect.
+    pub groq_language: String,
 }
 
 /// A single hotkey binding
@@ -426,6 +439,16 @@ impl Default for VadConfig {
             min_duration_seconds: 30.0,
             min_speech_duration_ms: 250,
             min_silence_duration_ms: 300,  // Higher = requires longer silence before splitting (was 100)
+        }
+    }
+}
+
+impl Default for TranscriptionConfig {
+    fn default() -> Self {
+        TranscriptionConfig {
+            provider: "local".to_string(), // Default to local daemon for backwards compatibility
+            groq_model: "whisper-large-v3-turbo".to_string(), // Good balance of speed and quality
+            groq_language: String::new(), // Empty = auto-detect
         }
     }
 }

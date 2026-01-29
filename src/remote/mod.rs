@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 use crate::TranscriptionResult;
 
+pub mod groq;
 pub mod openai;
 
 /// Common interface for speech transcription through remote APIs.

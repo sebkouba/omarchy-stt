@@ -31,6 +31,7 @@ use transcribe_rs::{
     dictation_logger, eww_widget,
     hotkey_state::{Action, HotkeyEvent, RecordingState, StateMachine},
     recording,
+    remote::groq::{GroqModel, GroqRequestParams, GroqTranscriptionEngine},
     timing::TimingBreakdown,
     transcription_corrections::TranscriptionCorrector,
     transcription_timing,
@@ -149,9 +150,9 @@ fn cancel_recording(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Transcribe audio file via daemon client
-fn transcribe_file(audio_file: &PathBuf) -> Result<String, Box<dyn Error>> {
-    info!("Transcribing: {:?}", audio_file);
+/// Transcribe audio file via local daemon client
+fn transcribe_file_local(audio_file: &PathBuf) -> Result<String, Box<dyn Error>> {
+    info!("Transcribing via local daemon: {:?}", audio_file);
 
     let current_exe = std::env::current_exe()?;
     let exe_dir = current_exe.parent().ok_or("Cannot get exe directory")?;
@@ -177,6 +178,44 @@ fn transcribe_file(audio_file: &PathBuf) -> Result<String, Box<dyn Error>> {
 
     let text = String::from_utf8(output.stdout)?;
     Ok(text.trim().to_string())
+}
+
+/// Transcribe audio file via Groq API
+fn transcribe_file_groq(audio_file: &PathBuf, config: &Config) -> Result<String, Box<dyn Error>> {
+    info!("Transcribing via Groq API: {:?}", audio_file);
+
+    let engine = GroqTranscriptionEngine::from_env_file()?;
+
+    // Map config model string to GroqModel enum
+    let model = match config.transcription.groq_model.as_str() {
+        "whisper-large-v3" => GroqModel::WhisperLargeV3,
+        "distil-whisper-large-v3-en" => GroqModel::DistilWhisperLargeV3En,
+        _ => GroqModel::WhisperLargeV3Turbo, // default
+    };
+
+    let language = if config.transcription.groq_language.is_empty() {
+        None
+    } else {
+        Some(config.transcription.groq_language.clone())
+    };
+
+    let params = GroqRequestParams {
+        model,
+        language,
+        prompt: None,
+        temperature: None,
+    };
+
+    let result = engine.transcribe_file_sync(audio_file, params)?;
+    Ok(result.text)
+}
+
+/// Transcribe audio file using configured provider
+fn transcribe_file(audio_file: &PathBuf, config: &Config) -> Result<String, Box<dyn Error>> {
+    match config.transcription.provider.as_str() {
+        "groq" => transcribe_file_groq(audio_file, config),
+        _ => transcribe_file_local(audio_file), // "local" or any other value defaults to local
+    }
 }
 
 /// Apply transcription corrections
@@ -622,7 +661,7 @@ fn process_transcription(
     let mut timer = transcription_timing::TranscriptionTimer::new(recording_ms_for_timing);
     timer.start();
 
-    let transcription = transcribe_file(audio_file)?;
+    let transcription = transcribe_file(audio_file, config)?;
 
     let transcription_ms = timer.stop_and_log().unwrap_or(0);
     debug!("Actual transcription time: {}ms", transcription_ms);

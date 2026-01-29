@@ -32,7 +32,7 @@ toml = "0.8"
 ctrlc = "3.4"
 rapidfuzz = "0.5.0"
 ureq = { version = "2.9", features = ["json"] }
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
 similar = "2.6"
 leptess = { version = "0.14", optional = true }
 eframe = "0.30"
